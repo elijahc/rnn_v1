@@ -2,6 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+import scipy.io as sio
 class Neuron(object):
 
     np = __import__('numpy')
@@ -47,21 +48,50 @@ class Neuron(object):
         print("Probability -> LOW: %.1f" % self.prob_to_lo)
         print("Spike %d" % self.spike)
 
-    @property
-    def history(self):
-        return self._history
-
+    def history(self, start=False, end=False):
+            if start and end:
+                return self._history[start:end]
+            elif start:
+                # Start = True, End = False
+                return self._history[start:]
+            elif end:
+                # Start = False; End = True
+                return self._history[:end]
+            else:
+                return self._history
 
 def main():
-    sim_time = 200000
+    num_neurons = 30
+    num_trials =5
+    num_time = 266
 
-    n = Neuron()
-    for i in range(sim_time):
-        #initialize
-        n.step()
-    plt.plot(n.history)
-    plt.ylabel('spikes')
-    plt.show()
+    neurons = np.empty_like(range(num_neurons), dtype=object)
+    print(neurons)
+    data = np.empty((num_trials,num_neurons,num_time), dtype=object)
+    def inc_n(neuron):
+        return neuron.step()
 
+    def hist_n(neuron, start=False, end=False):
+        print(type(neuron))
+        print(start)
+        print(end)
+        return neuron.history(start,end)
+
+    # initialize 30 neurons
+    for n_id in range(num_neurons):
+        neurons[n_id] = Neuron()
+
+    for trial in range(num_trials):
+        for t in range(num_time):
+            # increment Neurons
+            i = 0
+            for n in neurons:
+                data[trial,i,t]= n.step()
+                i=i+1
+
+    print(np.shape(data))
+    sio.savemat('sim_data_5.mat', {'test_data':data})
+    print(sio.whosmat('sim_data_5.mat'))
+    return data
 
 if __name__ == "__main__": main()
