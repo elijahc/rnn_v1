@@ -62,12 +62,12 @@ class Neuron(object):
 
 def main():
     num_neurons = 30
-    num_trials =5
+    num_trials = 9000
     num_time = 266
 
     neurons = np.empty_like(range(num_neurons), dtype=object)
     print(neurons)
-    data = np.empty((num_trials,num_neurons,num_time), dtype=object)
+    data = np.empty((num_trials,num_neurons,num_time), dtype=np.int8)
     def inc_n(neuron):
         return neuron.step()
 
@@ -90,8 +90,8 @@ def main():
                 i=i+1
 
     print(np.shape(data))
-    sio.savemat('sim_data_5.mat', {'test_data':data})
-    print(sio.whosmat('sim_data_5.mat'))
+    sio.savemat('data/sim_data_9k.mat', {'test_data':data})
+    print(sio.whosmat('data/sim_data_9k.mat'))
     return data
 
 if __name__ == "__main__": main()
