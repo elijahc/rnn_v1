@@ -1,39 +1,53 @@
 # -*- coding: utf-8 -*-
-"""
-Created on Tue Jan 17 13:09:07 2017
 
-@author: elijahc
-"""
-import functools
 import scipy.io as sio
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL']='3'
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
 import tensorflow as tf
 import numpy as np
-import pyspike as spk
+
 
 class Model:
 
-    def __init__(self, data, target):
-        self.data = data
-        self.target = target
+    def __init__(self, x, y, num_steps=5, state_size=4, learning_rate=1e-4):
+        # Config Variables
+        self.x = x
+        self.y = y
+        self.num_steps = num_steps  # number of truncated backprop steps ('n')
+        self.state_size = state_size
+        self.learning_rate = learning_rate
         self.global_step = tf.Variable(0, dtype=tf.int32, trainable=False)
+        num_classes = 2  # num of possible output (0,1) in this case.
+        num_layers = 2
 
-        hidden_size = 10
-        data_size = int(self.data.get_shape()[1])
-        batch_size = self.data.get_shape()[0]
-        target_size = int(self.target.get_shape()[1]) 
-        weight = tf.Variable(tf.truncated_normal([hidden_size, target_size]))
-        bias = tf.Variable(tf.constant(0.1, shape=[target_size]))
+        batch_size = self.x.get_shape()[0]
 
-        cell = tf.nn.rnn_cell.LSTMCell(hidden_size, state_is_tuple=True)
-        vals, states = tf.nn.dynamic_rnn(cell, self.data, dtype=tf.float32)
+        embeddings = tf.get_variable('embedding_matrix',
+                                     [num_classes, state_size])
 
-        vals = tf.transpose(vals, [1, 0, 2])
-        last = tf.gather_nd(vals, [[int(vals.get_shape()[0])-1]])
+        rnn_inputs = tf.nn.embedding_lookup(embeddings, x)
+
+        weight = tf.Variable(tf.truncated_normal([state_size, num_classes]))
+        bias = tf.Variable(tf.constant(0.1, shape=[num_classes]))
+
+        init_state = tf.zeros([batch_size, state_size])
+        cell = tf.nn.rnn_cell.LSTMCell(self.state_size, state_is_tuple=True)
+        #cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers,state_is_tuple=True)
+
+        rnn_outputs, final_state = tf.nn.dynamic_rnn(
+            cell,
+            rnn_inputs,
+            initial_state=init_state,
+            dtype=tf.float32
+        )
+
+        rnn_outputs = tf.reshape(rnn_outputs, [-1, state_size])
+        last = tf.gather_nd(rnn_outputs, [[int(rnn_outputs.get_shape()[0])-1]])
         last = tf.squeeze(last)
 
-        incoming = tf.matmul(last,weight) + bias
+        incoming = tf.matmul(rnn_outputs, weight) + bias
         self._prediction = tf.nn.relu(incoming)
         cm = tf.nn.sigmoid_cross_entropy_with_logits(self._prediction, self.target)
         self._optimize = tf.train.RMSPropOptimizer(0.03).minimize(cm)
@@ -115,9 +129,10 @@ def main():
 
     # Set params/placeholders
     epoch = 13
-    batch_size = np.shape(targets)[2]
-    stim_t = tf.placeholder(tf.float32, [batch_size,267,1])
-    response_t = tf.placeholder(tf.float32, [batch_size, 266])
+    batch_size = 200
+    num_steps = 5
+    x = tf.placeholder(tf.int32, [batch_size,num_steps], name='input_placeholder')
+    y = tf.placeholder(tf.int32, [batch_size, num_steps], name='labels_placeholder')
 
     train_output = np.transpose(train_output, [0,2,1])
     train_input = np.transpose(train_input, [2,1,0])
