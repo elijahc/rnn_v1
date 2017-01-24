@@ -23,9 +23,9 @@ class Model:
         global_step = tf.Variable(0, name='global_step', trainable=False)
         num_classes = 2  # num of possible outputs (0,1) in this case.
         batch_size = self.x.get_shape()[0]
-        
-        
-        
+
+
+
         embeddings = tf.get_variable('embedding_matrix',
                                      [num_classes, self.state_size])
 
@@ -37,7 +37,7 @@ class Model:
         cell = tf.nn.rnn_cell.LSTMCell(self.state_size, state_is_tuple=True)
         cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers,state_is_tuple=True)
         self.init_state = cell.zero_state(batch_size, tf.float32)
-        
+
         # rnn_outputs shape = (batch_size, num_steps, state_size)
         # final_state = rnn_outputs[:,-1,:] = (30, 25)
         rnn_outputs, final_state = tf.nn.dynamic_rnn(
@@ -50,20 +50,23 @@ class Model:
         rnn_outputs = tf.reshape(rnn_outputs, [-1, state_size])
         # Flatten y; (30,50) -> (30*50) = (1500)
         y_reshaped = tf.reshape(self.y, [-1])
-        
-        # (1500,25) x (25,2) = (1500,2)        
+
+        # (1500,25) x (25,2) = (1500,2)
         logits = tf.matmul(rnn_outputs, weight) + bias
         self._prediction = tf.nn.softmax(logits)
         self._prediction = tf.reshape(self._prediction, [-1, num_classes])
         with tf.name_scope('cross_entropy'):
             self._error = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, y_reshaped)
-            #import pdb; pdb.set_trace()
-            with tf.name_scope('total'): 
+            import pdb; pdb.set_trace()
+            with tf.name_scope('total'):
                 self._total_loss = tf.reduce_mean(self._error)
+            #with tf.name_scope('perplexity'):
+        import pdb; pdb.set_trace()
+                #tf.contrib.legacy_seq2seq.sequence_loss_by_example(logits, )
         tf.summary.scalar('total_loss', self._total_loss)
         self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self.total_loss, global_step=global_step)
-        
-        
+
+
         with tf.name_scope('accuracy'):
             with tf.name_scope('correct_prediction'):
                 correct_prediction = tf.equal(tf.argmax(self.prediction,1), tf.cast(y_reshaped, dtype=tf.int64))
@@ -72,15 +75,15 @@ class Model:
 
         self._merge_summaries = tf.summary.merge_all()
         self._global_step = global_step
-        
+
     def do(self, session, fetches, feed_dict):
         vals = session.run(fetches, feed_dict)
 
         return vals
-            
+
     def step(self,session):
         return tf.train.global_step(session,self._global_step)
-        
+
     @property
     def prediction(self):
         return self._prediction
@@ -92,16 +95,13 @@ class Model:
     @property
     def error(self):
         return self._error
-        
+
     @property
     def total_loss(self):
         return self._total_loss
     @property
     def merge_summaries(self):
         return self._merge_summaries
-        
-    
-        
 def gen_batch(raw_data, batch_size, num_steps):
     raw_x, raw_y = raw_data
     data_length = np.size(raw_x,axis=-1)
@@ -142,14 +142,14 @@ def main():
     train_target = tf.placeholder(tf.int32, [batch_size, num_steps], name='labels_placeholder')
 
     mat_file = sio.loadmat('data/sim_data_1n15k.mat')
-    
+
     raw_x = mat_file['test_data'][:,:-10]
     raw_y = np.roll(mat_file['test_data'], -1, axis=1)[:,:-10]
     raw_data = (raw_x, raw_y)
-    
+
     #train_input = inputs[:NUM_EXAMPLES, :, :-16]
     #train_output = targets[:NUM_EXAMPLES, :, :-16]
-    
+
     #test_input = inputs[NUM_EXAMPLES:]
     #test_output = targets[NUM_EXAMPLES:]
     # Set params/placeholders
@@ -163,7 +163,7 @@ def main():
             t = time.time()
             model = Model(train_input, train_target, num_steps,state_size)
             print("it took", time.time() - t, "seconds to build the graph")
-            
+
     with tf.Session() as sess:
         t = time.strftime("%Y%m%d.%H.%M.%S",time.localtime(time.time()))
         train_writer = tf.summary.FileWriter('log/'+t, sess.graph)
@@ -184,7 +184,7 @@ def main():
                 }
                 #import pdb; pdb.set_trace()
                 vals = model.do(sess,fetchers,feed_dict)
-                
+
                 training_loss += vals['total_loss']
                 if step % 10 == 0 and step > 0:
                     #print("Epoch: %d Example: %d Error: %.3f" % (idx+1,step+1, 100*vals['total_loss']))
