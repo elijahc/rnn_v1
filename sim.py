@@ -8,7 +8,7 @@ class Neuron(object):
     np = __import__('numpy')
     def __init__(self, VERBOSE=False):
         self.HI_FREQ = 250 #Hz
-        self.LOW_FREQ = 50 #Hz
+        self.LOW_FREQ = 25 #Hz
         self.prob_to_hi = 0.7
         self.prob_to_lo = 0.3
         self.spike = 0
@@ -61,13 +61,13 @@ class Neuron(object):
                 return self._history
 
 def main():
-    num_neurons = 30
-    num_trials = 9000
+    num_neurons = 1
+    num_trials = 15000
     num_time = 266
 
     neurons = np.empty_like(range(num_neurons), dtype=object)
     print(neurons)
-    data = np.empty((num_trials,num_neurons,num_time), dtype=np.int8)
+    data = np.empty((num_neurons,num_time*num_trials), dtype=np.int8)
     def inc_n(neuron):
         return neuron.step()
 
@@ -86,12 +86,12 @@ def main():
             # increment Neurons
             i = 0
             for n in neurons:
-                data[trial,i,t]= n.step()
+                data[i,t+(num_time*trial)]= n.step()
                 i=i+1
 
     print(np.shape(data))
-    sio.savemat('data/sim_data_9k.mat', {'test_data':data})
-    print(sio.whosmat('data/sim_data_9k.mat'))
+    sio.savemat('data/sim_data_1n15k.mat', {'test_data':data})
+    print(sio.whosmat('data/sim_data_1n15k.mat'))
     return data
 
 if __name__ == "__main__": main()
