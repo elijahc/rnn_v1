@@ -53,17 +53,22 @@ class Model:
 
         # (1500,25) x (25,2) = (1500,2)
         logits = tf.matmul(rnn_outputs, weight) + bias
+        seqw =  tf.ones((batch_size, num_steps))
         self._prediction = tf.nn.softmax(logits)
         self._prediction = tf.reshape(self._prediction, [-1, num_classes])
         with tf.name_scope('cross_entropy'):
             self._error = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, y_reshaped)
-            import pdb; pdb.set_trace()
             with tf.name_scope('total'):
                 self._total_loss = tf.reduce_mean(self._error)
-            #with tf.name_scope('perplexity'):
-        import pdb; pdb.set_trace()
-                #tf.contrib.legacy_seq2seq.sequence_loss_by_example(logits, )
+        logits_1 = tf.reshape(logits, [-1, num_steps, 2])
+        seq_loss = tf.nn.seq2seq.sequence_loss_by_example(
+            tf.unpack(logits_1, axis=1),
+            tf.unpack(self.y, axis=1), 
+            tf.unpack(seqw, axis=1)
+        )
+        self._pw_perplexity = tf.reduce_mean(seq_loss)
         tf.summary.scalar('total_loss', self._total_loss)
+        tf.summary.scalar('per_word_perplexity', self._pw_perplexity)
         self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self.total_loss, global_step=global_step)
 
 
@@ -95,6 +100,10 @@ class Model:
     @property
     def error(self):
         return self._error
+    
+    @property
+    def pw_perplexity(self):
+        return self._pw_perplexity
 
     @property
     def total_loss(self):
