@@ -28,7 +28,7 @@ class Model:
 
         embeddings = tf.get_variable('embedding_matrix',
                                      [num_classes, self.state_size])
-
+        self.debug = embeddings
         rnn_inputs = tf.nn.embedding_lookup(embeddings, self.x)
 
         weight = tf.get_variable('weight',[self.state_size, num_classes])
@@ -60,16 +60,19 @@ class Model:
             self._error = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, y_reshaped)
             with tf.name_scope('total'):
                 self._total_loss = tf.reduce_mean(self._error)
-        logits_1 = tf.reshape(logits, [-1, num_steps, 2])
+        logits_1 = tf.reshape(logits, [-1, num_steps, num_classes])
         seq_loss = tf.nn.seq2seq.sequence_loss_by_example(
             tf.unpack(logits_1, axis=1),
             tf.unpack(self.y, axis=1), 
-            tf.unpack(seqw, axis=1)
+            tf.unpack(seqw, axis=1),
+            average_across_timesteps=True
         )
-        self._pw_perplexity = tf.reduce_mean(seq_loss)
+        perplexity = tf.exp(seq_loss)
+        #import pdb; pdb.set_trace()
+        self._avg_perplexity = tf.reduce_mean(perplexity)
         tf.summary.scalar('total_loss', self._total_loss)
-        tf.summary.scalar('per_word_perplexity', self._pw_perplexity)
-        self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self.total_loss, global_step=global_step)
+        tf.summary.scalar('avg_perplexity', self._avg_perplexity)
+        self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self._avg_perplexity, global_step=global_step)
 
 
         with tf.name_scope('accuracy'):
@@ -102,8 +105,8 @@ class Model:
         return self._error
     
     @property
-    def pw_perplexity(self):
-        return self._pw_perplexity
+    def avg_perplexity(self):
+        return self._avg_perplexity
 
     @property
     def total_loss(self):
@@ -144,8 +147,8 @@ def main():
     tf.reset_default_graph()
     NUM_EXAMPLES = 3
     batch_size = 32*3
-    state_size = 2
-    num_steps = 128
+    state_size = 8
+    num_steps = 96
     num_epochs = 4
     train_input = tf.placeholder(tf.int32, [batch_size,num_steps], name='input_placeholder')
     train_target = tf.placeholder(tf.int32, [batch_size, num_steps], name='labels_placeholder')
@@ -189,6 +192,7 @@ def main():
                 'total_loss': model.total_loss,
                 'prediction': model.prediction,
                 'summary': model.merge_summaries,
+                'debug': model.debug,
                 'eval':model.optimize
                 }
                 #import pdb; pdb.set_trace()
@@ -198,6 +202,7 @@ def main():
                 if step % 10 == 0 and step > 0:
                     #print("Epoch: %d Example: %d Error: %.3f" % (idx+1,step+1, 100*vals['total_loss']))
                     #print("Average loss at step %d for the last 250 steps: %.3f" % (step, training_loss/10))
+                    print(vals['debug'])
                     #training_losses.append(training_loss/10)
                     global_step = model.step(session=sess)
                     train_writer.add_summary(vals['summary'],global_step)
