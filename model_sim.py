@@ -8,6 +8,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 import tensorflow as tf
 import numpy as np
 import time
+from tqdm import tqdm
 
 
 class Model:
@@ -30,7 +31,7 @@ class Model:
                                      [num_classes, self.state_size])
         #self.debug = embeddings
         rnn_inputs = tf.nn.embedding_lookup(embeddings, self.x)
-        #import pdb; pdb.set_trace()
+        self.debug = rnn_inputs
         weight = tf.get_variable('weight',[self.state_size, num_classes])
         bias = tf.get_variable('bias', [num_classes], initializer=tf.constant_initializer(0.0))
 
@@ -56,7 +57,7 @@ class Model:
         seqw =  tf.ones((batch_size, num_steps))
         self._flat_prediction = tf.nn.softmax(logits)
         self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps,num_classes])
-        for i in range(int(batch_size)):
+        for i in range(int(batch_size)-1):
             tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:,1])
 
         
@@ -84,8 +85,12 @@ class Model:
         with tf.name_scope('accuracy'):
              with tf.name_scope('correct_prediction'):
                 correct_prediction = tf.equal(tf.argmax(self.prediction,2), tf.cast(self.y, dtype=tf.int64))
+                null_prediction = tf.equal(tf.argmax(tf.zeros_like(self.prediction), 2), tf.cast(self.y, dtype=tf.int64))
              accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+             null_accuracy = tf.reduce_mean(tf.cast(null_prediction, tf.float32))
         tf.summary.scalar('accuracy', accuracy)
+        tf.summary.scalar('null_accuracy', null_accuracy)
+        tf.summary.scalar('relative_accuracy', accuracy/null_accuracy)
 
         self._merge_summaries = tf.summary.merge_all()
         self._global_step = global_step
@@ -153,7 +158,7 @@ def main():
     # load data
     tf.reset_default_graph()
     NUM_EXAMPLES = 3
-    batch_size = 40
+    batch_size = 60
     state_size = 32
     num_steps = 96
     num_epochs = 4
@@ -163,10 +168,13 @@ def main():
     #mat_file = sio.loadmat('data/sim_data_3n15k.mat')
 
     mat_file = sio.loadmat('data/10_timeseries.mat')
-    raw_x = mat_file['timeseries'].reshape(76,-1,4).max(axis=2)[:batch_size,:-10]
-    raw_y = np.roll(raw_x, -1, axis=1)[:batch_size,:-10]
-    raw_data = (raw_x, raw_y)
+    stim_x = mat_file['stim']
+    raw_x = mat_file['timeseries']
+    #raw_x = np.concatenate([raw_x, stim_x], axis=0)
+    raw_x = raw_x.reshape(76,-1,10).max(axis=2)[-batch_size:,:-10]
+    raw_y = np.roll(raw_x, -1, axis=1)[-batch_size:,:-10]
     #import pdb; pdb.set_trace()
+    raw_data = (raw_x, raw_y)
     #train_input = inputs[:NUM_EXAMPLES, :, :-16]
     #train_output = targets[:NUM_EXAMPLES, :, :-16]
 
@@ -192,7 +200,7 @@ def main():
         for idx,epoch in enumerate(gen_epochs(raw_data,num_epochs,batch_size,num_steps)):
             training_loss = 0
             print("EPOCH: %d" % idx)
-            for step,(X,Y) in enumerate(epoch):
+            for step,(X,Y) in tqdm(enumerate(epoch)):
                 #import pdb; pdb.set_trace()
                 feed_dict = {train_input:X,
                              train_target:Y}
@@ -200,12 +208,12 @@ def main():
                 #'total_loss': model.total_loss,
                 'prediction': model.prediction,
                 'summary': model.merge_summaries,
-                #'debug': model.debug,
+                'debug': model.debug,
                 'eval':model.optimize
                 }
                 #import pdb; pdb.set_trace()
                 vals = model.do(sess,fetchers,feed_dict)
-
+                import pdb; pdb.set_trace()
                 #training_loss += vals['total_loss']
                 if step % 100 == 0 and step > 0:
                     #print("Epoch: %d Example: %d Error: %.3f" % (idx+1,step+1, 100*vals['total_loss']))
