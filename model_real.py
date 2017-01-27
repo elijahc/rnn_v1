@@ -25,30 +25,32 @@ class Model:
         batch_size = self.x.get_shape()[0]
 
 
-
+        
         embeddings = tf.get_variable('embedding_matrix',
-                                     [self.num_classes, self.state_size])
-
-        rnn_inputs = tf.nn.embedding_lookup(embeddings, self.x)
+                                    [self.num_classes, self.state_size])
+        
+        rnn_inputs = [tf.squeeze(i) for i in tf.split(1, num_steps, tf.nn.embedding_lookup(embeddings,x))]
+        import pdb; pdb.set_trace()
         weight = tf.get_variable('weight',[self.state_size, self.num_classes])
         bias = tf.get_variable('bias', [self.num_classes], initializer=tf.constant_initializer(0.0))
 
-        cell = tf.nn.rnn_cell.LSTMCell(self.state_size, state_is_tuple=True)
-        cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers,state_is_tuple=True)
+        cell = tf.nn.rnn_cell.LSTMCell(self.state_size)
+        #cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers,state_is_tuple=True)
         self.init_state = cell.zero_state(batch_size, tf.float32)
-
+        #import pdb; pdb.set_trace()
         # rnn_outputs shape = (batch_size, num_steps, state_size)
         # final_state = rnn_outputs[:,-1,:] = (30, 25)
-        rnn_outputs, final_state = tf.nn.dynamic_rnn(
+        rnn_outputs, final_state = tf.nn.rnn(
             cell,
             rnn_inputs,
             initial_state=self.init_state,
             dtype=tf.float32
         )
+        self._debug = rnn_outputs.get_shape()
         # Flatten rnn_outputs down to shape = (batch_size*num_steps, state_size)
         #self._p_logits = tf.Print([self.x], [self.x], message="logits and logits_o")
         rnn_outputs = tf.reshape(rnn_outputs, [-1, state_size])
-        self._rnn_inputs = self.x
+        
         # Flatten y; (30,50) -> (30*50) = (1500)
         y_reshaped = tf.reshape(self.y, [-1])
 
@@ -118,8 +120,8 @@ class Model:
         return self._merge_summaries
 
     @property
-    def p_logits(self):
-        return self._p_logits
+    def debug(self):
+        return self._debug
 
 def gen_batch(raw_data, batch_size, num_steps):
     raw_x, raw_y = raw_data
@@ -201,7 +203,7 @@ def main():
                 'total_loss': model.total_loss,
                 'prediction': model.prediction,
                 'summary': model.merge_summaries,
-                '_prediction': model._rnn_inputs, 
+                'debug': model.debug, 
                 'eval':model.optimize
                 }
                 #import pdb; pdb.set_trace()
@@ -211,7 +213,7 @@ def main():
                 if step % 10 == 0 and step > 0:
                     #print("Epoch: %d Example: %d Error: %.3f" % (idx+1,step+1, 100*vals['total_loss']))
                     #print("Average loss at step %d for the last 250 steps: %.3f" % (step, training_loss/10))
-                    print(vals['_prediction'])
+                    print(vals['debug'])
                     #training_losses.append(training_loss/10)
                     global_step = model.step(session=sess)
                     train_writer.add_summary(vals['summary'],global_step)

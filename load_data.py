@@ -23,13 +23,10 @@ resp_train_blk = session_1['resp_train_blk'][mask]
 # Shift by 50ms to account for response latency
 latency = 50
 resp = np.concatenate((resp_train,resp_train_blk), axis=3)
-resp = np.roll(resp,-latency,3)[:,:,:,:-latency]
+#resp = np.roll(resp,-latency,3)[:,:,:,:-latency]
 
 
 #%%
-
-
-
 
 # 105+211*956*20
 def mutate(resp):
@@ -45,7 +42,7 @@ def mutate(resp):
                      'trial': r,
                      'image': image_id-1
                      }
-            x_on = np.zeros(105-latency, dtype=int) + image_id
+            x_on = np.zeros(105, dtype=int) + image_id
             x_off= np.zeros(211, dtype=int) + 956
             x = np.concatenate((x_on, x_off))
             
@@ -62,5 +59,7 @@ def mutate(resp):
         print(x)
         print(y.shape)
         print(y)
-    return (sequences,labels)
+    return (sequences,np.concatenate(np.array(labels), axis=1))
 seq, lab = mutate(resp)
+
+sio.savemat('data/10_timeseries.mat', {'timeseries':lab})
