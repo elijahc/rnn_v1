@@ -93,3 +93,6 @@ ENV/
 
 # ignore data
 data/
+
+# ignore logs
+log/
