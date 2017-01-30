@@ -60,7 +60,7 @@ class Model:
         for i in range(int(batch_size)-1):
             tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:,1])
 
-        
+
         with tf.name_scope('cross_entropy'):
             self._error = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, y_reshaped)
             with tf.name_scope('total'):
@@ -114,7 +114,7 @@ class Model:
     @property
     def error(self):
         return self._error
-    
+
     @property
     def avg_perplexity(self):
         return self._avg_perplexity
@@ -125,6 +125,7 @@ class Model:
     @property
     def merge_summaries(self):
         return self._merge_summaries
+
 def gen_batch(raw_data, batch_size, num_steps):
     raw_x, raw_y = raw_data
     data_length = np.size(raw_x,axis=-1)
