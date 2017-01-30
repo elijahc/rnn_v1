@@ -14,7 +14,7 @@ from tqdm import tqdm
 print('loading...stim_sequence')
 stim_sequence = sio.loadmat('data/stimulus_sequence.mat')['stimulus_sequence']
 print('loading...matfile')
-session_1 = sio.loadmat('data/10.mat')
+session_1 = sio.loadmat('data/02.mat')
 
 #%%
 # Filter out poor quality neurons
@@ -48,7 +48,7 @@ def mutate(resp):
             x_on = np.zeros(105, dtype=int) + 1
             x_off= np.zeros(211, dtype=int) + 0
             x = np.concatenate((x_on, x_off))
-            
+
             y = resp[:,image_id-1, r,:]
             i = i+1
             sequences.extend([x])
@@ -67,7 +67,7 @@ def mutate(resp):
     return (np.concatenate(np.array(sequences)),np.concatenate(np.array(labels), axis=1))
 seq, lab = mutate(resp)
 
-file = 'data/10_timeseries.mat'
+file = 'data/02_timeseries.mat'
 print('writing ', file, '...')
 sio.savemat(file, {'timeseries':lab, 'stim':seq})
 sio.whosmat(file)

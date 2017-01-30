@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 class Model:
 
-    def __init__(self, x, y, num_steps=50, state_size=25, learning_rate=1e-4, num_layers=3):
+    def __init__(self, x, y, num_steps=50, state_size=25, learning_rate=1e-2, num_layers=3):
         # Config Variables
         self.x = x
         self.y = y
@@ -25,15 +25,9 @@ class Model:
         num_classes = 2  # num of possible outputs (0,1) in this case.
         batch_size = self.x.get_shape()[0]
 
-
-
-        embeddings = tf.get_variable('embedding_matrix',
-                                     [num_classes, self.state_size])
-        #self.debug = embeddings
-        rnn_inputs = tf.nn.embedding_lookup(embeddings, self.x)
-        self.debug = rnn_inputs
-        weight = tf.get_variable('weight',[self.state_size, num_classes])
-        bias = tf.get_variable('bias', [num_classes], initializer=tf.constant_initializer(0.0))
+        rnn_inputs = self.x
+        weight = tf.get_variable('weight',[self.state_size, 1], initializer=tf.constant_initializer(1.0))
+        bias = tf.get_variable('bias', [1], initializer=tf.constant_initializer(0.1))
 
         cell = tf.nn.rnn_cell.LSTMCell(self.state_size, state_is_tuple=True)
         cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers,state_is_tuple=True)
@@ -54,18 +48,19 @@ class Model:
 
         # (1500,25) x (25,2) = (1500,2)
         logits = tf.matmul(rnn_outputs, weight) + bias
-        seqw =  tf.ones((batch_size, num_steps))
-        self._flat_prediction = tf.nn.softmax(logits)
-        self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps,num_classes])
+        logits = tf.reshape(logits, [int(batch_size),self.num_steps])
+        self.debug=logits
+        #seqw =  tf.ones((batch_size, num_steps))
+        self._prediction = logits
+        #self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps])
         for i in range(int(batch_size)-1):
-            tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:,1])
+            tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:])
 
+        with tf.name_scope('error'):
+            self._error = logits-self.y
+            with tf.name_scope('total_loss'):
+                self._total_loss = tf.reduce_sum(tf.pow(self._error,2))
 
-        with tf.name_scope('cross_entropy'):
-            self._error = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, y_reshaped)
-            with tf.name_scope('total'):
-                self._total_loss = tf.reduce_sum(self._error)
-        #import pdb; pdb.set_trace()
         #logits_1 = tf.reshape(logits, [-1, num_steps, num_classes])
         #seq_loss = tf.nn.seq2seq.sequence_loss_by_example(
         #    tf.unpack(logits_1, axis=1),
@@ -81,16 +76,15 @@ class Model:
         #tf.summary.scalar('avg_perplexity', self._avg_perplexity)
         self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self._total_loss, global_step=global_step)
 
-
         with tf.name_scope('accuracy'):
              with tf.name_scope('correct_prediction'):
-                correct_prediction = tf.equal(tf.argmax(self.prediction,2), tf.cast(self.y, dtype=tf.int64))
-                null_prediction = tf.equal(tf.argmax(tf.zeros_like(self.prediction), 2), tf.cast(self.y, dtype=tf.int64))
-             accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+                #correct_prediction = self.prediction-self.y
+                null_prediction = tf.equal(tf.zeros_like(self.prediction), self.y)
+             #accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
              null_accuracy = tf.reduce_mean(tf.cast(null_prediction, tf.float32))
-        tf.summary.scalar('accuracy', accuracy)
+        #tf.summary.scalar('accuracy', accuracy)
         tf.summary.scalar('null_accuracy', null_accuracy)
-        tf.summary.scalar('relative_accuracy', accuracy/null_accuracy)
+        #tf.summary.scalar('relative_accuracy', accuracy/null_accuracy)
 
         self._merge_summaries = tf.summary.merge_all()
         self._global_step = global_step
@@ -155,25 +149,30 @@ def gen_epochs(raw_data,n, batch_size,num_steps):
         yield gen_batch(raw_data, batch_size, num_steps)
 
 def main():
-    #%%
+
     # load data
     tf.reset_default_graph()
     NUM_EXAMPLES = 3
-    batch_size = 60
-    state_size = 32
-    num_steps = 96
+    batch_size = 30
+    num_steps = 32
+    state_size = 15
     num_epochs = 4
-    train_input = tf.placeholder(tf.int32, [batch_size,num_steps], name='input_placeholder')
-    train_target = tf.placeholder(tf.int32, [batch_size, num_steps], name='labels_placeholder')
+    train_input = tf.placeholder(tf.float32, [batch_size,num_steps,state_size], name='input_placeholder')
+    train_target = tf.placeholder(tf.float32, [batch_size, num_steps], name='labels_placeholder')
 
     #mat_file = sio.loadmat('data/sim_data_3n15k.mat')
 
-    mat_file = sio.loadmat('data/10_timeseries.mat')
+    mat_file = sio.loadmat('data/02_timeseries.mat')
     stim_x = mat_file['stim']
     raw_x = mat_file['timeseries']
+    #import pdb; pdb.set_trace()
+    num_neurons = np.shape(raw_x)[0]
+    #import pdb; pdb.set_trace()
+    raw_x = raw_x[-batch_size:].reshape(batch_size,-1,10).sum(axis=2)[:,:-10]
+    #stim_x = stim_x.reshape(1,-1,10).max(axis=2)[:,:-10]
+    #import pdb; pdb.set_trace()
     #raw_x = np.concatenate([raw_x, stim_x], axis=0)
-    raw_x = raw_x.reshape(76,-1,10).max(axis=2)[-batch_size:,:-10]
-    raw_y = np.roll(raw_x, -1, axis=1)[-batch_size:,:-10]
+    raw_y = np.roll(raw_x, -1, axis=1)
     #import pdb; pdb.set_trace()
     raw_data = (raw_x, raw_y)
     #train_input = inputs[:NUM_EXAMPLES, :, :-16]
@@ -203,7 +202,9 @@ def main():
             print("EPOCH: %d" % idx)
             for step,(X,Y) in tqdm(enumerate(epoch)):
                 #import pdb; pdb.set_trace()
-                feed_dict = {train_input:X,
+                x_reshaped = np.expand_dims(X, axis=2)
+                new_x = np.repeat(x_reshaped, state_size, axis=2)
+                feed_dict = {train_input:new_x,
                              train_target:Y}
                 fetchers = {
                     #'total_loss': model.total_loss,
@@ -212,15 +213,16 @@ def main():
                     'debug': model.debug,
                     'eval':model.optimize
                 }
-                #import pdb; pdb.set_trace()
+
                 vals = model.do(sess,fetchers,feed_dict)
-                import pdb; pdb.set_trace()
+                rnn_inputs = vals["debug"]
+                #import pdb; pdb.set_trace()
                 #training_loss += vals['total_loss']
                 if step % 100 == 0 and step > 0:
                     #print("Epoch: %d Example: %d Error: %.3f" % (idx+1,step+1, 100*vals['total_loss']))
                     #print("Average loss at step %d for the last 250 steps: %.3f" % (step, training_loss/10))
                     if step % 1000 == 0:
-                        print(vals['prediction'],'\n')
+                        print('\n',vals['prediction'],'\n')
                     #training_losses.append(training_loss/10)
                     global_step = model.step(session=sess)
                     train_writer.add_summary(vals['summary'],global_step)
