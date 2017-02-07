@@ -89,7 +89,7 @@ class Model:
         tf.summary.scalar('var', var)
         #tf.summary.scalar('rel_mean', var/self._total_loss)
         #tf.summary.scalar('rel_null', null_loss/self._total_loss)
-        tf.summary.scalar('FEV', 1-(self.FEV))
+        tf.summary.scalar('FEV', self.FEV)
         #tf.summary.scalar('relative_accuracy', accuracy/null_accuracy)
 
         self._merge_summaries = tf.summary.merge_all()
