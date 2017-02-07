@@ -89,7 +89,7 @@ class Model:
         tf.summary.scalar('var', var)
         #tf.summary.scalar('rel_mean', var/self._total_loss)
         #tf.summary.scalar('rel_null', null_loss/self._total_loss)
-        tf.summary.scalar('FEV', 1-(self.FEV))
+        tf.summary.scalar('FEV', self.FEV)
         #tf.summary.scalar('relative_accuracy', accuracy/null_accuracy)
 
         self._merge_summaries = tf.summary.merge_all()
@@ -163,13 +163,13 @@ def main():
     batch_size = 1
     num_steps = 32
     state_size = n_use
-    num_epochs = 5
+    num_epochs = 3
     test_frac = 0.2
     train_input = tf.placeholder(tf.float32, [batch_size,num_steps,n_use], name='input_placeholder')
     train_target = tf.placeholder(tf.float32, [batch_size,num_steps,n_use], name='labels_placeholder')
 
     # load data
-    FILE = 'data/10_timeseries_trial_shuffled.mat'
+    FILE = 'data/10_timeseries.mat'
     print('loading file: '+FILE)
     mat_file = sio.loadmat(FILE)
     #stim_x = mat_file['stim']
@@ -182,6 +182,10 @@ def main():
     mean_raw_x = np.repeat(mean_raw_x, num_steps, axis=1).reshape([num_steps,n_use])
     #stim_x = stim_x.reshape(1,-1,10).max(axis=2)[:,:-10]
     #raw_x = np.concatenate([raw_x, stim_x], axis=0)
+    raw_x_ts = np.copy(np.reshape(raw_x, [604182,30]))
+    np.random.shuffle(raw_x_ts)
+    raw_x_ts = np.reshape(raw_x_ts,[30,604182])
+    raw_x = raw_x_ts
     raw_y = np.roll(raw_x, -1, axis=1)
     epoch_size = np.size(raw_x, axis=-1) // num_steps
     idxs = np.random.permutation(epoch_size)
