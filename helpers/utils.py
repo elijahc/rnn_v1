@@ -1,5 +1,37 @@
 import numpy as np
 
+def gen_batch(raw_data, idxs, batch_size, num_steps, n_use,next_n):
+    raw_x, raw_y = raw_data
+    data_length = np.size(raw_x,axis=-1)
+    #raw_x = np.squeeze(raw_x)
+    #raw_y = np.squeeze(raw_y)
+
+    # partition raw data into batches and stack them vertically in a data matrix
+    batch_partition_length = np.size(idxs) // batch_size
+    batch_idxs = np.random.choice(idxs,(batch_size))
+
+    shape = (batch_size, n_use,num_steps)
+    ashape = [batch_size,num_steps,n_use]
+    x = np.empty(shape)
+    y = np.empty((batch_size,n_use,num_steps+next_n))
+    xy= np.empty((batch_size,n_use,num_steps+next_n))
+
+    for p in np.arange(batch_partition_length):
+        for b in np.arange(batch_size):
+            num_idxs = np.shape(idxs)[0]
+            #rand_idxs = idxs[np.random.randint(batch_size)]
+            for i in idxs:
+                xy[b] = raw_x[:, i*num_steps:((i+1)*num_steps)+next_n]
+
+            new_xy= np.reshape(xy,[batch_size,num_steps+next_n,n_use])
+            new_x = new_xy[:,:-next_n,:]
+            new_y = new_xy[:,-next_n:,:]
+            yield (new_x,new_y,new_xy)
+def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n):
+    for i in range(n):
+        yield gen_batch(raw_data, idxs, batch_size, num_steps,n_use,next_n)
+
+
 class KohnUtils:
 
     def make_timeseries(kohn_data,kohn_stim_seq, latency=None):
@@ -57,32 +89,4 @@ class KohnUtils:
         sio.savemat(SAVE_PATH,{
             'timeseries':ts
                     })
-
-def gen_batch(raw_data, idxs, batch_size, num_steps, n_use):
-    raw_x, raw_y = raw_data
-    data_length = np.size(raw_x,axis=-1)
-    #raw_x = np.squeeze(raw_x)
-    #raw_y = np.squeeze(raw_y)
-
-    # partition raw data into batches and stack them vertically in a data matrix
-    batch_partition_length = np.size(idxs) // batch_size
-
-    shape = (batch_size, n_use,num_steps)
-    ashape = [batch_size,num_steps,n_use]
-    x = np.empty(shape)
-    y = np.empty(shape)
-    for p in np.arange(batch_partition_length):
-        for b in np.arange(batch_size):
-            for i in idxs[p*batch_size:(p+1) * batch_size]:
-                x[b] = raw_x[:, i * num_steps:(i + 1) * num_steps]
-                y[b] = raw_y[:, i * num_steps:(i + 1) * num_steps]
-
-        new_x = np.reshape(x,ashape)
-        new_y = np.squeeze(np.reshape(y,ashape)[:,-1:,:],axis=1)
-        yield (new_x,new_y)
-
-def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use):
-    for i in range(n):
-        yield gen_batch(raw_data, idxs, batch_size, num_steps,n_use)
-
 

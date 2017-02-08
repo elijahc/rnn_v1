@@ -2,7 +2,7 @@ import tensorflow as tf
 
 class RecurrentActivityModel:
 
-    def __init__(self, x, y, x_mean, num_steps=50, state_size=25, learning_rate=1e-3, num_layers=3):
+    def __init__(self, x, y, x_mean, num_steps=50, state_size=25, next_n=1,learning_rate=1e-3, num_layers=3):
 
         # Config Variables
         self.x = x # [1,num_steps,n_use=state_size]
@@ -32,7 +32,7 @@ class RecurrentActivityModel:
             dtype=tf.float32
         )
         # Flatten rnn_outputs down to shape = (batch_size*num_steps, state_size)
-        last_out = rnn_outputs[:,-1:,:]
+        last_out = rnn_outputs[:,-next_n:,:]
         out_mod = tf.reshape(rnn_outputs, [-1, state_size])
         # Flatten y; (num_steps,n_use) -> (num_steps*n_use)
 
@@ -41,7 +41,7 @@ class RecurrentActivityModel:
         logits_reshaped = tf.reshape(logits,[-1,num_steps,state_size])
         self._weight_matrix = weight
         #seqw =  tf.ones((batch_size, num_steps))
-        self._prediction = tf.squeeze(logits_reshaped[:,-1:,:])
+        self._prediction = logits_reshaped[:,-next_n:,:]
         #self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps])
         #for i in range(self.n_use-1):
             #tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:])
@@ -64,12 +64,13 @@ class RecurrentActivityModel:
         tf.summary.scalar('total_loss', self._total_loss)
         #tf.summary.scalar('avg_perplexity', self._avg_perplexity)
         self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self._total_loss, global_step=global_step)
+        self._y_mean = tf.reduce_mean(self.y,axis=1,keep_dims=True)
 
         with tf.name_scope('accuracy'):
              with tf.name_scope('correct_prediction'):
                 #correct_prediction = self.prediction-self.y
                 null_error = tf.zeros_like(self._prediction)-self.y
-                mean_error = x_mean-self.y
+                mean_error = self._y_mean-self.y
              #accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
              null_loss = tf.reduce_sum(tf.pow(null_error, 2))
              var = tf.reduce_sum(tf.pow(mean_error,2))
