@@ -1,11 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Spyder Editor
-
-This is a temporary script file.
-"""
-
-#%%
 import scipy.io as sio
 import numpy as np
 from tqdm import tqdm

@@ -1,4 +1,10 @@
+import rnn_model
 import scipy.io as sio
+from PIL import Image
+import plotly.plotly as py
+import plotly.graph_objs as go
+import plotly.tools as tls
+
 import os
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
@@ -8,162 +14,20 @@ import numpy as np
 import time
 from tqdm import tqdm
 
-
-class Model:
-
-    def __init__(self, x, y, x_mean, num_steps=50, state_size=25, learning_rate=1e-3, num_layers=3):
-
-        # Config Variables
-        self.x = x # [1,num_steps,n_use=state_size]
-        self.y = y
-        self.num_steps = num_steps  # number of truncated backprop steps ('n')
-        self.state_size = state_size
-        self.learning_rate = learning_rate
-        self.num_layers = num_layers
-        global_step = tf.Variable(0, name='global_step', trainable=False)
-        batch_size = self.x.get_shape()[0]
-        self.n_use = int(self.x.get_shape()[2])
-
-        rnn_inputs = self.x
-        weight = tf.get_variable('weight',[self.state_size, self.n_use], initializer=tf.constant_initializer(1.0))
-        bias = tf.get_variable('bias', [self.n_use], initializer=tf.constant_initializer(0.1))
-
-        cell = tf.nn.rnn_cell.LSTMCell(self.state_size, state_is_tuple=True)
-        cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers,state_is_tuple=True)
-        self.init_state = cell.zero_state(batch_size, tf.float32)
-
-        # rnn_outputs shape = (batch_size, num_steps, state_size)
-        # final_state = rnn_outputs[:,-1,:] = (30, 25)
-        rnn_outputs, final_state = tf.nn.dynamic_rnn(
-            cell,
-            rnn_inputs,
-            initial_state=self.init_state,
-            dtype=tf.float32
-        )
-        # Flatten rnn_outputs down to shape = (batch_size*num_steps, state_size)
-        rnn_outputs = tf.reshape(rnn_outputs, [-1, state_size])
-        # Flatten y; (num_steps,n_use) -> (num_steps*n_use)
-        y_reshaped = tf.reshape(self.y, [-1, self.n_use])
-
-        # (1500,25) x (25,2) = (1500,2)
-        logits = tf.matmul(rnn_outputs, weight) + bias
-        #logits = tf.reshape(logits, [int(batch_size),self.num_steps])
-        self.debug=logits
-        #seqw =  tf.ones((batch_size, num_steps))
-        self._prediction = logits
-        #self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps])
-        #for i in range(self.n_use-1):
-            #tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:])
-
-        with tf.name_scope('error'):
-            self._error = logits-self.y
-            with tf.name_scope('total_loss'):
-                self._total_loss = tf.reduce_sum(tf.pow(self._error,2))
-
-        #logits_1 = tf.reshape(logits, [-1, num_steps, num_classes])
-        #seq_loss = tf.nn.seq2seq.sequence_loss_by_example(
-        #    tf.unpack(logits_1, axis=1),
-        #    tf.unpack(self.y, axis=1),
-        #    tf.unpack(seqw, axis=1),
-        #    average_across_timesteps=True
-        #    #softmax_loss_function=
-        #)
-        #perplexity = tf.exp(seq_loss)
-        #import pdb; pdb.set_trace()
-        #self._avg_perplexity = tf.reduce_mean(perplexity)
-        tf.summary.scalar('total_loss', self._total_loss)
-        #tf.summary.scalar('avg_perplexity', self._avg_perplexity)
-        self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self._total_loss, global_step=global_step)
-
-        with tf.name_scope('accuracy'):
-             with tf.name_scope('correct_prediction'):
-                #correct_prediction = self.prediction-self.y
-                null_error = tf.abs(tf.zeros_like(self.prediction)-self.y)
-                mean_error = tf.abs(x_mean-self.y)
-             #accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
-             null_loss = tf.reduce_sum(tf.pow(null_error, 2))
-             var = tf.reduce_sum(tf.pow(mean_error, 2))
-             self.FEV = 1-(self._total_loss/var)
-        #tf.summary.scalar('accuracy', accuracy)
-        tf.summary.scalar('null_loss', null_loss)
-        tf.summary.scalar('var', var)
-        #tf.summary.scalar('rel_mean', var/self._total_loss)
-        #tf.summary.scalar('rel_null', null_loss/self._total_loss)
-        tf.summary.scalar('FEV', self.FEV)
-        #tf.summary.scalar('relative_accuracy', accuracy/null_accuracy)
-
-        self._merge_summaries = tf.summary.merge_all()
-        self._global_step = global_step
-
-    def do(self, session, fetches, feed_dict):
-        vals = session.run(fetches, feed_dict)
-
-        return vals
-
-    def step(self,session):
-        return tf.train.global_step(session,self._global_step)
-
-    @property
-    def prediction(self):
-        return self._prediction
-
-    @property
-    def optimize(self):
-        return self._optimize
-
-    @property
-    def error(self):
-        return self._error
-
-    @property
-    def avg_perplexity(self):
-        return self._avg_perplexity
-
-    @property
-    def total_loss(self):
-        return self._total_loss
-    @property
-    def merge_summaries(self):
-        return self._merge_summaries
-
-def gen_batch(raw_data, batch_size, num_steps, idxs):
-    raw_x, raw_y = raw_data
-    data_length = np.size(raw_x,axis=-1)
-    #raw_x = np.squeeze(raw_x)
-    #raw_y = np.squeeze(raw_y)
-
-    # partition raw data into batches and stack them vertically in a data matrix
-    #batch_partition_length = data_length // batch_size
-    #data_x = np.zeros([batch_size, batch_partition_length], dtype=np.int32)
-    #data_y = np.zeros([batch_size, batch_partition_length], dtype=np.int32)
-    #for i in range(batch_size):
-    #    data_x[i] = raw_x[batch_partition_length * i:batch_partition_length * (i + 1)]
-    #    data_y[i] = raw_y[batch_partition_length * i:batch_partition_length * (i + 1)]
-
-    # further divide batch partitions into num_steps for truncated backprop
-    data_x, data_y = raw_x, raw_y
-    epoch_size = data_length // num_steps
-
-    for i in idxs:
-        x = data_x[:, i * num_steps:(i + 1) * num_steps]
-        y = data_y[:, i * num_steps:(i + 1) * num_steps]
-        #import pdb;pdb.set_trace()
-        yield (x, y)
-
-def gen_epochs(raw_data,n, batch_size,num_steps,idxs):
-    for i in range(n):
-        yield gen_batch(raw_data, batch_size, num_steps,idxs)
+from helpers.utils import *
 
 def main():
 
     # Set params/placeholders
+    validate=False
+    time_shuffle=False
     tf.reset_default_graph()
     NUM_EXAMPLES = 3
     n_use = 30
     batch_size = 1
     num_steps = 32
     state_size = n_use
-    num_epochs = 3
+    num_epochs = 4
     test_frac = 0.2
     train_input = tf.placeholder(tf.float32, [batch_size,num_steps,n_use], name='input_placeholder')
     train_target = tf.placeholder(tf.float32, [batch_size,num_steps,n_use], name='labels_placeholder')
@@ -182,10 +46,12 @@ def main():
     mean_raw_x = np.repeat(mean_raw_x, num_steps, axis=1).reshape([num_steps,n_use])
     #stim_x = stim_x.reshape(1,-1,10).max(axis=2)[:,:-10]
     #raw_x = np.concatenate([raw_x, stim_x], axis=0)
-    raw_x_ts = np.copy(np.reshape(raw_x, [604182,30]))
-    np.random.shuffle(raw_x_ts)
-    raw_x_ts = np.reshape(raw_x_ts,[30,604182])
-    raw_x = raw_x_ts
+    raw_x_ts = []
+    if time_shuffle==True:
+        for n in np.arange(n_use):
+             permuted = np.random.permutation(raw_x[n,:])
+             raw_x_ts.extend([permuted])
+        raw_x = np.array(raw_x_ts)
     raw_y = np.roll(raw_x, -1, axis=1)
     epoch_size = np.size(raw_x, axis=-1) // num_steps
     idxs = np.random.permutation(epoch_size)
@@ -196,17 +62,87 @@ def main():
     with tf.name_scope('Train'):
         with tf.variable_scope('Model', reuse=None):
             t = time.time()
-            model = Model(train_input, train_target, mean_raw_x, num_steps,state_size)
+            model = RecurrentActivityModel(train_input, train_target, mean_raw_x, num_steps,state_size)
             print("it took", time.time() - t, "seconds to build the Train graph")
     with tf.name_scope('Test'):
         with tf.variable_scope('Model', reuse=True):
             t = time.time()
-            m_test = Model(train_input, train_target, mean_raw_x, num_steps, state_size)
+            m_test = RecurrentActivityModel(train_input, train_target, mean_raw_x, num_steps, state_size)
             print("it took", time.time() - t, "seconds to build the Test graph")
 
+    # setup streaming heatmap object
+    weight_matrix = np.zeros((30,30))
+    predictions = np.zeros((32,30))
+    input_data = np.zeros((32,30))
+    stream_ids = tls.get_credentials_file()['stream_ids']
+    sid = stream_ids[0]
+    sid1 = stream_ids[1]
+    x_sid = stream_ids[2]
+    predictions_stream = dict(token=sid1,maxpoints=30)
+    hm_stream = dict(token=sid,maxpoints=30)
+    x_input_stream = dict(token=x_sid,maxpoints=30)
+    x_trace = go.Heatmap(
+            z=input_data,
+            zmax=3,
+            zmin=0,
+            colorscale='Jet',
+            stream=x_input_stream
+            )
+    hm_trace = go.Heatmap(
+            z=weight_matrix,
+            colorscale='Viridis',
+            zmax=5,
+            zmin=-1,
+            stream=hm_stream
+            )
+    pred_trace = go.Heatmap(
+            z=predictions,
+            stream=predictions_stream,
+            colorscale='Jet',
+            zmax=3,
+            zmin=0
+            )
+    #x_input_trace = go.
+    data = go.Data([hm_trace])
+    data1 = go.Data([pred_trace])
+    x_data = go.Data([x_trace])
+
+    fig = dict(
+            data=data,
+
+            layout=dict(
+            title='Last Weight Matrix')
+            )
+    pred_fig = dict(
+            data=data1,
+
+            layout=dict(
+                title='Predictions',
+                yaxis=dict(
+                    title='neuron')
+            ))
+    input_fig = dict(
+            data=x_data,
+
+            layout=dict(
+                title='input_data',
+                yaxis=dict(
+                    title='neuron'
+                    )
+                )
+            )
+    py.plot(fig, filename='last-weight-matrix-streaming', auto_open=False)
+    py.plot(pred_fig, filename='last_prediction', auto_open=False)
+    py.plot(input_fig, filename='last-input-streaming', auto_open=False)
+    s = py.Stream(sid)
+    pred_s = py.Stream(sid1)
+    input_s = py.Stream(x_sid)
+    streams = [s,pred_s,input_s]
     with tf.Session() as sess:
         t = time.strftime("%Y%m%d.%H.%M.%S",time.localtime(time.time()))
-        train_writer = tf.summary.FileWriter('log/data_10/n'+str(n_use)+'/'+t, sess.graph)
+        TFR_PATH = 'log/data_10/n'+str(n_use)+'/'+t
+        print('Logging to...',TFR_PATH)
+        train_writer = tf.summary.FileWriter(TFR_PATH, sess.graph)
         sess.run(tf.global_variables_initializer())
         training_losses = []
         for idx,epoch in enumerate(gen_epochs(raw_data,num_epochs,n_use,num_steps,train_idxs)):
@@ -220,8 +156,9 @@ def main():
                              train_target:new_y}
                 fetchers = {
                     #'total_loss': model.total_loss,
-                    #'prediction': model.prediction,
+                    'prediction': model.prediction,
                     'summary': model.merge_summaries,
+                    'weights': model._weight_matrix,
                     #'debug': model.debug,
                     'eval':model.optimize
                 }
@@ -231,10 +168,29 @@ def main():
                 #import pdb; pdb.set_trace()
                 #training_loss += vals['total_loss']
                 global_step = model.step(session=sess)
-                if step % 1000 == 0 and step > 0:
+                weight_matrix = vals['weights']
+                predictions = vals['prediction']
+                if step % 5000 == 0 and step > 0:
+                    updates = [
+                            dict(
+                                z=weight_matrix,
+                                type='heatmap'),
+                            dict(
+                                z=predictions,
+                                type='heatmap'),
+                            dict(
+                                z=np.squeeze(new_x),
+                                type='heatmap' )
+                            ]
+                    for stream,update in zip(streams,updates):
+                        time.sleep(.001)
+                        stream.open()
+                        stream.write(update)
+                        stream.close()
+
                     #print("Epoch: %d Example: %d Error: %.3f" % (idx+1,step+1, 100*vals['total_loss']))
                     #print("Average loss at step %d for the last 250 steps: %.3f" % (step, training_loss/10))
-                    if step % 1000 == 0:
+                    if step % 1000 == 0 and validate==True:
                         print('\ntesting...')
                         for test_step, (X,Y) in enumerate(gen_batch(raw_data, batch_size,num_steps, test_idxs)):
                             x_reshaped = np.expand_dims(X, axis=2)
@@ -245,14 +201,19 @@ def main():
                             test_fetchers = {
                                     'total_loss': m_test._total_loss,
                                     'fev': m_test.FEV,
+                                    'weight': m_test._weight_matrix,
                                     'summary': m_test.merge_summaries
                                     }
                             test_vals = m_test.do(sess,test_fetchers, test_feed_dict)
+                            weight_matrix = test_vals['weight']
                             #if test_step % 500 == 0:
                                 #print('\nEPOCH: %d Test_Total_Loss: %.3f Test_FEV: %.3f' % (idx,test_vals['total_loss'],test_vals['fev']))
                         print('\ntesting...done')
                         train_writer.add_summary(test_vals['summary'],global_step)
                 train_writer.add_summary(vals['summary'],global_step)
+        import pdb; pdb.set_trace()
+        data = [go.Heatmap(z=weight_matrix)]
+        url=py.plot(data,filename='last-weight-matrix')
 
 if __name__ == '__main__':
     main()
