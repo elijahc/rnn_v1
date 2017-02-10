@@ -1,35 +1,40 @@
 import numpy as np
 
-def gen_batch(raw_data, idxs, batch_size, num_steps, n_use,next_n):
-    raw_x, raw_y = raw_data
-    data_length = np.size(raw_x,axis=-1)
+def gen_batch(raw_data, idxs, batch_size, num_steps, n_use,next_n,VERBOSE=False):
     #raw_x = np.squeeze(raw_x)
     #raw_y = np.squeeze(raw_y)
 
     # partition raw data into batches and stack them vertically in a data matrix
-    batch_partition_length = np.size(idxs) // batch_size
-    batch_idxs = np.random.choice(idxs,(batch_size))
+    num_idxs = np.shape(idxs)[0]
+    batch_partition_length = num_idxs // batch_size
+    batch_idxs = np.random.permutation(num_idxs)
 
-    shape = (batch_size, n_use,num_steps)
-    ashape = [batch_size,num_steps,n_use]
-    x = np.empty(shape)
-    y = np.empty((batch_size,n_use,num_steps+next_n))
-    xy= np.empty((batch_size,n_use,num_steps+next_n))
+    for i in np.arange(batch_partition_length):
+        xy = raw_data[i*batch_size:(i+1)*batch_size]
+        x = xy[:,:num_steps,:]
+        y = xy[:,-next_n:,:]
+        yield (x,y,xy)
 
-    for p in np.arange(batch_partition_length):
-        for b in np.arange(batch_size):
-            num_idxs = np.shape(idxs)[0]
-            #rand_idxs = idxs[np.random.randint(batch_size)]
-            for i in idxs:
-                xy[b] = raw_x[:, i*num_steps:((i+1)*num_steps)+next_n]
 
-            new_xy= np.reshape(xy,[batch_size,num_steps+next_n,n_use])
-            new_x = new_xy[:,:-next_n,:]
-            new_y = new_xy[:,-next_n:,:]
-            yield (new_x,new_y,new_xy)
-def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n):
+def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n,opts={'VERBOSE':False}):
+    VERBOSE=opts['VERBOSE']
+    raw_x, raw_y = raw_data
+    num_idxs=np.shape(idxs)[0]
+    data = np.empty((num_idxs,num_steps+next_n,n_use))
+
+    if VERBOSE:
+        print('raw_data shape:',np.shape(raw_x))
+        print('indexes_shape',np.shape(idxs))
+        print('partioning raw_data...')
+    for i,idx in enumerate(idxs):
+        # Make a data matrix thats [num_idxs, num_steps+next_n, num_neurons]
+        data[i,:,:] = np.reshape(raw_x[:, idx*num_steps:((idx+1)*num_steps)+next_n],[1,num_steps+next_n,n_use])
+    if VERBOSE:
+        print('data matrix shape',np.shape(data))
+
+    # Pass the whole data matrix to gen batch for every epoch
     for i in range(n):
-        yield gen_batch(raw_data, idxs, batch_size, num_steps,n_use,next_n)
+        yield gen_batch(data, idxs, batch_size, num_steps,n_use,next_n,opts['VERBOSE'])
 
 
 class KohnUtils:
