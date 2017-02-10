@@ -1,6 +1,11 @@
 import numpy as np
 
-def gen_batch(raw_data, idxs, batch_size, num_steps, n_use,next_n,VERBOSE=False):
+def gen_batch(raw_data, idxs, lookups, FLAGS):
+    batch_size = FLAGS.batch
+    num_steps = FLAGS.seq_len
+    n_use = FLAGS.n_use
+    next_n = FLAGS.guess
+    VERBOSE = FLAGS.VERBOSE
     #raw_x = np.squeeze(raw_x)
     #raw_y = np.squeeze(raw_y)
 
@@ -11,16 +16,26 @@ def gen_batch(raw_data, idxs, batch_size, num_steps, n_use,next_n,VERBOSE=False)
 
     for i in np.arange(batch_partition_length):
         xy = raw_data[i*batch_size:(i+1)*batch_size]
-        x = xy[:,:num_steps,:]
-        y = xy[:,-next_n:,:]
-        yield (x,y,xy)
+        x = xy[:,:num_steps]
+        y = xy[:,-next_n:]
+        yield (x,y,xy,lookups)
 
 
-def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n,FLAGS):
+def gen_epochs(n,raw_data,idxs,FLAGS):
+    num_steps = FLAGS.seq_len
+    n_use = FLAGS.n_use
+    next_n= FLAGS.guess
+    batch_size= FLAGS.batch
+
     VERBOSE=FLAGS.VERBOSE
-    raw_x, raw_y = raw_data
+    raw_x = raw_data
     num_idxs=np.shape(idxs)[0]
-    data = np.empty((num_idxs,num_steps+next_n,n_use))
+    data = np.empty((num_idxs,num_steps+next_n))
+    # Map ints to tuples
+    n_vec_set = set()
+    vec_to_id={}
+    id_to_vec=[]
+    next_key=0
 
     if VERBOSE:
         print('raw_data shape:',np.shape(raw_x))
@@ -28,13 +43,35 @@ def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n,FLAGS):
         print('partioning raw_data...')
     for i,idx in enumerate(idxs):
         # Make a data matrix thats [num_idxs, num_steps+next_n, num_neurons]
-        data[i,:,:] = np.reshape(raw_x[:, idx*num_steps:((idx+1)*num_steps)+next_n],[1,num_steps+next_n,n_use])
-    if VERBOSE:
-        print('data matrix shape',np.shape(data))
+        ex = np.reshape(raw_x[:, idx*num_steps:((idx+1)*num_steps)+next_n],[1,num_steps+next_n,n_use])
+        for step in np.arange(num_steps+next_n):
+            ex_tup = tuple(ex[0,step].tolist())
+            if not ex_tup in n_vec_set:
+                vec_to_id[ex_tup] = next_key
+                id_to_vec.extend([ex_tup])
+                next_key = next_key+1
+                n_vec_set.add(ex_tup)
+
+            # Lookup ID
+            data[i,step] = vec_to_id[ex_tup]
+
+    lookups = dict(
+            id_to_vec=id_to_vec,
+            vec_to_id=vec_to_id,
+            n_vec_set=n_vec_set)
 
     # Pass the whole data matrix to gen batch for every epoch
     for i in range(n):
-        yield gen_batch(data, idxs, batch_size, num_steps,n_use,next_n,FLAGS.VERBOSE)
+        yield gen_batch(data, idxs, lookups,FLAGS)
+
+def vec_set(raw_data,FLAGS,idxs):
+    num_idxs=np.ma.size(idxs,axis=-1)
+
+    uniq_input = set()
+    for epoch in gen_epochs(1,raw_data,idxs,FLAGS):
+        for i,(x,y,xy,lookups) in enumerate(epoch):
+            return lookups['n_vec_set']
+
 
 
 class KohnUtils:
