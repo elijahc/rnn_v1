@@ -1,12 +1,10 @@
 import scipy.io as sio
 import os
-import csv
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 import tensorflow as tf
 import numpy as np
-import time
 import plotly.plotly as py
 import plotly.graph_objs as go
 import plotly.tools as tls
@@ -16,43 +14,70 @@ from rnn_model import RecurrentActivityModel
 from helpers.dataloaders import MatLoader as ld
 from helpers.utils import *
 
-def run(params,sess,num_epochs=1):
-
-    return vals
-
-
+import argparse
+import time
 
 def main():
+    parser = argparse.ArgumentParser(description='RNN for modeling neuron populations')
+
+    # Boolean arguments
+    parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
+                        help='print all the things')
+    parser.add_argument('--no_validate', dest='VALIDATE', action='store_false',
+                        help='do not validate model after every epoch')
+    parser.add_argument('--stream', dest='STREAMING', action='store_true',
+                        help='stream results in realtime to plot.ly')
+    parser.add_argument('--shuffle', dest='TIME_SHUFFLE', action='store_true',
+                        help='time shuffle all the values of each neuron across the entire timeseries')
+    parser.set_defaults(VERBOSE=False,
+                        STREAMING=False,
+                        TIME_SHUFFLE=False,
+                        VALIDATE=True
+                        )
+
+    parser.add_argument('--rnn_size', type=int, default=30,
+                        help='size of RNN hidden state')
+    parser.add_argument('--n_use', type=int, default=30,
+                        help='number of neurons to use')
+    parser.add_argument('--batch', type=int, default=10,
+                        help='minibatch size')
+    parser.add_argument('--seq_len', type=int, default=32,
+                        help='RNN sequence length')
+    parser.add_argument('--epochs', type=int, default=50,
+                        help='number of epochs')
+    parser.add_argument('--guess', type=int, default=1,
+                        help='number of sequences forward to guess')
+    parser.add_argument('--test', type=float, default=0.2,
+                        help='percentage of the dataset to set aside for testing')
+
+    FLAGS = parser.parse_args()
+    train(FLAGS)
+
+def train(FLAGS):
 
     # Set params/placeholders
-    TIME_SHUFFLE=True
-    VALIDATE=True
-    STREAMING=False
-    VERBOSE=False
-    FLAGS=dict(
-            TIME_SHUFFLE=TIME_SHUFFLE,
-            VALIDATE=VALIDATE,
-            STREAMING=STREAMING,
-            VERBOSE=VERBOSE
-            )
+    TIME_SHUFFLE=FLAGS.TIME_SHUFFLE
+    VALIDATE=FLAGS.VALIDATE
+    STREAMING=FLAGS.STREAMING
+    VERBOSE=FLAGS.VERBOSE
 
     tf.reset_default_graph()
 
-    n_use = 30
-    batch_size = 10
-    num_steps = 39
-    state_size = n_use
-    num_epochs = 50
-    next_n = 3
-    binning=10
-    test_frac = 0.2
+    n_use = FLAGS.n_use
+    batch_size = FLAGS.batch
+    num_steps = FLAGS.seq_len
+    state_size = FLAGS.rnn_size
+    num_epochs = FLAGS.epochs
+    next_n = FLAGS.guess
+    binning = 10
+    test_frac = FLAGS.test
     train_input = tf.placeholder(tf.float32, [batch_size,num_steps,n_use], name='input_placeholder')
     train_target= tf.placeholder(tf.float32, [batch_size,next_n,n_use], name='labels_placeholder')
     #state_tuple=
 
     # load data
-    FILE = 'data/02_timeseries.mat'
-    #FILE = 'data/10_timeseries.mat'
+    #FILE = 'data/02_timeseries.mat'
+    FILE = 'data/10_timeseries.mat'
     #FILE = 'data/10_timeseries_trial_shuffled.mat'
     print('loading file: '+FILE)
     if VERBOSE:
@@ -98,7 +123,7 @@ def main():
                 y=np.arange(-num_steps,next_n)+1,
                 zmax=3,
                 zmin=0,
-                colorscale='Jet',
+                colorscale='Magma',
                 stream=x_input_stream
                 )
         hm_trace = go.Heatmap(
@@ -110,7 +135,7 @@ def main():
                 z=predictions,
                 y=np.arange(-num_steps,next_n)+1,
                 stream=predictions_stream,
-                colorscale='Jet',
+                colorscale='Magma',
                 zmax=3,
                 zmin=0
                 )
@@ -182,7 +207,7 @@ def main():
                     num_steps,
                     state_size,
                     next_n,
-                    learning_rate=.01)
+                    learning_rate=.05)
             if VERBOSE:
                 print("it took", time.time() - t, "seconds to build the Train graph")
 
@@ -195,7 +220,7 @@ def main():
 
     with tf.Session() as sess:
         t = time.strftime("%Y%m%d.%H.%M.%S",time.localtime(time.time()))
-        TFR_PATH = 'log/data_02/n'+str(n_use)+'/'+t
+        TFR_PATH = 'log/data_10/n'+str(n_use)+'/'+t
         print('Logging to...',TFR_PATH)
         train_writer = tf.summary.FileWriter(TFR_PATH, sess.graph)
         sess.run(tf.global_variables_initializer())
@@ -213,7 +238,7 @@ def main():
                 }
 
         last_vals={'status':{'lr':1e-2}}
-        for idx,epoch in enumerate(gen_epochs(num_epochs,raw_data,train_idxs,batch_size,num_steps,n_use,next_n,opts=FLAGS)):
+        for idx,epoch in enumerate(gen_epochs(num_epochs,raw_data,train_idxs,batch_size,num_steps,n_use,next_n,FLAGS)):
             b_id = np.random.randint(batch_size)
             status = "EPOCH: %d LR: %.5f" % (idx,last_vals['status']['lr'])
             for step,(X,Y,XY) in tqdm(enumerate(epoch),desc=status,total=train_epoch_length):
@@ -261,7 +286,7 @@ def main():
             if VALIDATE:
                 # testing
                 test_status = "EPOCH: %d testing..." % idx
-                for epoch in gen_epochs(1,raw_data, test_idxs,batch_size,num_steps,n_use,next_n,opts=FLAGS):
+                for epoch in gen_epochs(1,raw_data, test_idxs,batch_size,num_steps,n_use,next_n,FLAGS):
                     for test_step, (X,Y,XY) in tqdm(enumerate(epoch),desc=test_status,total=test_epoch_length):
                         test_feed_dict = {train_input:X,
                                          train_target:Y}

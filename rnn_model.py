@@ -27,7 +27,7 @@ class RecurrentActivityModel:
                 self.learning_rate,
                 global_step,
                 10000,
-                0.70,
+                0.80,
                 staircase=False
                 )
 

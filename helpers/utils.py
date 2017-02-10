@@ -16,8 +16,8 @@ def gen_batch(raw_data, idxs, batch_size, num_steps, n_use,next_n,VERBOSE=False)
         yield (x,y,xy)
 
 
-def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n,opts={'VERBOSE':False}):
-    VERBOSE=opts['VERBOSE']
+def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n,FLAGS):
+    VERBOSE=FLAGS.VERBOSE
     raw_x, raw_y = raw_data
     num_idxs=np.shape(idxs)[0]
     data = np.empty((num_idxs,num_steps+next_n,n_use))
@@ -34,7 +34,7 @@ def gen_epochs(n,raw_data,idxs,batch_size,num_steps,n_use,next_n,opts={'VERBOSE'
 
     # Pass the whole data matrix to gen batch for every epoch
     for i in range(n):
-        yield gen_batch(data, idxs, batch_size, num_steps,n_use,next_n,opts['VERBOSE'])
+        yield gen_batch(data, idxs, batch_size, num_steps,n_use,next_n,FLAGS.VERBOSE)
 
 
 class KohnUtils:
