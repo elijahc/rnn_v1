@@ -79,7 +79,9 @@ def train(FLAGS):
     test_frac = FLAGS.test
     learning_rate = FLAGS.lr
     train_input = tf.placeholder(tf.int32, [batch_size,num_steps], name='input_placeholder')
-    train_target= tf.placeholder(tf.float32, [batch_size,next_n], name='labels_placeholder')
+    train_target= tf.placeholder(tf.int32, [batch_size,n_use], name='labels_placeholder')
+    x_set_dim= tf.placeholder(tf.int32, shape=(), name='x_set_dim_placeholder')
+    y_set_dim= tf.placeholder(tf.int32, shape=(), name='y_set_dim_placeholder')
     #state_tuple=
 
     # load data
@@ -174,7 +176,7 @@ def train(FLAGS):
 
                     yaxis=dict(
                         title='time (%dms)' % (binning),
-                        range=[-num_steps,next_n]
+                        routputange=[-num_steps,next_n]
                         ),
 
                     xaxis=dict(
@@ -213,7 +215,8 @@ def train(FLAGS):
                     train_input,
                     train_target,
                     mean_raw_x,
-                    train_vec_set,
+                    len(train_vec_set['t_map']),
+                    len(train_vec_set['n_map']),
                     FLAGS)
             if VERBOSE:
                 print("it took", time.time() - t, "seconds to build the Train graph")
@@ -225,7 +228,8 @@ def train(FLAGS):
                     train_input,
                     train_target,
                     mean_raw_x,
-                    test_vec_set,
+                    len(test_vec_set['t_map']),
+                    len(test_vec_set['n_map']),
                     FLAGS)
             if VERBOSE:
                 print("it took", time.time() - t, "seconds to build the Test graph")
@@ -254,9 +258,14 @@ def train(FLAGS):
             b_id = np.random.randint(batch_size)
             status = "EPOCH: %d LR: %.5f" % (idx,last_vals['status']['lr'])
             for step,(X,Y,XY,lookups) in tqdm(enumerate(epoch),desc=status,total=train_epoch_length):
+                FLAGS.x_set_dim = len(lookups['t_map'])
+                FLAGS.y_set_dim = len(lookups['n_map'])
                 import pdb; pdb.set_trace()
                 feed_dict = {train_input:X,
-                             train_target:Y}
+                             train_target:Y,
+                             x_set_dim:FLAGS.x_set_dim,
+                             y_set_dim:FLAGS.y_set_dim
+                             }
                 fetchers = {
                     'summary':      model.merge_summaries,
                     'status':       model.status,

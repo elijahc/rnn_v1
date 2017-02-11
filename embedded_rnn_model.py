@@ -2,7 +2,7 @@ import tensorflow as tf
 
 class RecurrentActivityModel:
 
-    def __init__(self, x, y, x_mean, n_vec_set, FLAGS):
+    def __init__(self, x, y, x_mean, x_set_dim, y_set_dim, FLAGS):
         def squared(tensor):
             return tf.pow(tensor,2)
 
@@ -20,7 +20,8 @@ class RecurrentActivityModel:
         global_step = tf.Variable(0, name='global_step', trainable=False)
         batch_size = FLAGS.batch
         self.n_use = FLAGS.n_use
-        self.vocab_size = len(n_vec_set)
+        self.vocab_size = x_set_dim
+        self.resp_size  = y_set_dim
         next_n = FLAGS.guess
 
         learning_rate = tf.train.exponential_decay(
@@ -33,6 +34,8 @@ class RecurrentActivityModel:
 
         embedding = tf.get_variable(
                     "embedding", [self.vocab_size,FLAGS.rnn_size],dtype=tf.float32)
+
+        y_OH = tf.one_hot(self.y,self.resp_size)
 
         rnn_inputs = tf.nn.embedding_lookup(embedding,self.x)
 
@@ -49,12 +52,22 @@ class RecurrentActivityModel:
                     initializer=tf.constant_initializer(0.1)
                     )
 
+        with tf.variable_scope('weight2'):
+            W2 = tf.get_variable(
+                    'W2',
+                    [FLAGS.batch*self.resp_size,FLAGS.batch*FLAGS.seq_len]
+                    )
+            b2 = tf.get_variable(
+                    'b2',
+                    [self.n_use],
+                    initializer=tf.constant_initializer(0.1)
+                    )
         self._weight_matrix = W
 
         # Define RNN architecture
         cell = tf.nn.rnn_cell.LSTMCell(FLAGS.rnn_size, state_is_tuple=True)
         cell = tf.nn.rnn_cell.MultiRNNCell([cell] * FLAGS.layers,state_is_tuple=True)
-        self.init_state = cell.zero_state(batch_size, tf.float32)
+        self.init_state = cell.zero_state(FLAGS.batch, tf.float32)
 
 
         # Connect rnn_inputs to architecture defined above
@@ -67,25 +80,30 @@ class RecurrentActivityModel:
             dtype=tf.float32
         )
 
-        import pdb; pdb.set_trace()
         # Grab last n values
-        last_n_out = rnn_outputs[:,-next_n:,:]
+        #last_n_out = rnn_outputs[:,-next_n:,:]
         # Flatten rnn_outputs down to shape = (batch_size*num_steps, state_size)
-        out_mod = tf.reshape(last_n_out, [-1, FLAGS.rnn_size])
+        out_mod = tf.reshape(rnn_outputs, [-1, FLAGS.rnn_size])
+
+        logits = tf.matmul(out_mod, W) + bias
+
+        _response_vec = tf.matmul(W2,logits) + b2
+        response_vec = tf.reshape(_response_vec, [FLAGS.batch,FLAGS.n_use,self.resp_size])
+
         # Flatten y; (num_steps,n_use) -> (num_steps*n_use)
-        _y      = tf.reshape(self.y, [-1,FLAGS.rnn_size])
-        _y_mean = tf.reshape(self.y_mean, [-1,FLAGS.rnn_size])
-        _x_mean = tf.reshape(self.x_mean, [-1,FLAGS.rnn_size])
+        #_y_mean = tf.reshape(self.y_mean, [-1,FLAGS.rnn_size])
+        #_x_mean = tf.reshape(self.x_mean, [-1,FLAGS.n_use])
 
         # (1500,25) x (25,2) = (1500,2)
-        logits = tf.matmul(out_mod, W) + bias
-        logits_reshaped = tf.reshape(logits,[batch_size,next_n,self.n_use])
         #seqw =  tf.ones((batch_size, num_steps))
-        self._prediction = logits_reshaped
+
+        ###### Stopping point
+        self._prediction = tf.argmax(response_vec,axis=2)
         #self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps])
         #for i in range(self.n_use-1):
             #tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:])
 
+        import pdb; pdb.set_trace()
         with tf.name_scope('metrics'):
             # Error Metrics
             with tf.name_scope('error'):
