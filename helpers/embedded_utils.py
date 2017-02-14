@@ -1,34 +1,57 @@
 import numpy as np
 
-def gen_batch(raw_data, idxs,FLAGS):
+def gen_batch(raw_data, t_vec,n_vec,idxs, FLAGS):
+    batch_size = FLAGS.batch
+    num_steps = FLAGS.seq_len
+    n_use = FLAGS.n_use
+    next_n = FLAGS.guess
+    VERBOSE = FLAGS.VERBOSE
     #raw_x = np.squeeze(raw_x)
     #raw_y = np.squeeze(raw_y)
 
     # partition raw data into batches and stack them vertically in a data matrix
-    batch_size = FLAGS.batch_size
-    num_steps = FLAGS.num_steps
-    next_n = FLAGS.next_n
     num_idxs = np.shape(idxs)[0]
-    batch_partition_length = num_idxs // FLAGS.batch_size
+    batch_partition_length = num_idxs // batch_size
     batch_idxs = np.random.permutation(num_idxs)
+    t_maj = [FLAGS.batch,FLAGS.seq_len,FLAGS.n_use]
+    t_map = {}
+    n_map = {}
 
+
+    t_map = set_map(t_vec,FLAGS)
+
+    n_map = set_map(n_vec,FLAGS)
+
+    lookups = dict(
+            t_map=t_map,
+            n_map=n_map,
+            t_vec_set=t_vec,
+            n_vec_set=n_vec)
     for i in np.arange(batch_partition_length):
-        xy = raw_data[i*batch_size:(i+1)*batch_size]
-        x = xy[:,:num_steps,:]
-        y = xy[:,-next_n:,:]
-        yield (x,y,xy)
+        xy = raw_data[i*batch_size:(i+1)*batch_size].astype(int)
+        x_out = np.empty((batch_size,num_steps))
+        y_out = np.empty((batch_size,n_use))
+        for b in np.arange(batch_size):
+            for t in np.arange(num_steps):
+                x_out[b,t] = t_map[tuple(xy[b,t,:].tolist())]
+            for n in np.arange(n_use):
+                y_out[b,n] = n_map[tuple(xy[b,-next_n:,n].tolist())]
+
+        yield (x_out,y_out,xy,lookups)
 
 
 def gen_epochs(n,raw_data,idxs,FLAGS):
-    VERBOSE=FLAGS.VERBOSE
-    batch_size = FLAGS.batch_size
-    num_steps = FLAGS.num_steps
-    next_n = FLAGS.next_n
+    num_steps = FLAGS.seq_len
     n_use = FLAGS.n_use
+    next_n= FLAGS.guess
+    batch_size= FLAGS.batch
+    VERBOSE=FLAGS.VERBOSE
 
     raw_x = raw_data
     num_idxs=np.shape(idxs)[0]
     data = np.empty((num_idxs,num_steps+next_n,n_use))
+    t_vec = set()
+    n_vec = set()
 
     if VERBOSE:
         print('raw_data shape:',np.shape(raw_x))
@@ -36,14 +59,22 @@ def gen_epochs(n,raw_data,idxs,FLAGS):
         print('partioning raw_data...')
     for i,idx in enumerate(idxs):
         # Make a data matrix thats [num_idxs, num_steps+next_n, num_neurons]
-        if ((idx+1)*num_steps) + next_n < np.size(raw_x,axis=1):
-            data[i,:,:] = np.reshape(raw_x[:, idx*num_steps:((idx+1)*num_steps)+next_n],[1,num_steps+next_n,n_use])
-    if VERBOSE:
-        print('data matrix shape',np.shape(data))
+        ex = np.reshape(raw_x[:, idx*num_steps:((idx+1)*num_steps)+next_n],[1,num_steps+next_n,n_use])
+        data[i] = ex
+        x_ex = ex[:,:num_steps]
+        y_ex = ex[:,-next_n:]
+        for t in np.arange(num_steps):
+            t_vec.add(tuple(x_ex[0,t,:].tolist()))
+        for n in np.arange(n_use):
+            n_vec.add(tuple(y_ex[0,:,n].tolist()))
+
+
+        #x_sparse,x_maps = t_vec(x,FLAGS)
+        #y_sparse,y_maps = t_vec(np.reshape(y,[FLAGS.batch,FLAGS.n_use,FLAGS.guess]),FLAGS)
 
     # Pass the whole data matrix to gen batch for every epoch
     for i in range(n):
-        yield gen_batch(data, idxs,FLAGS)
+        yield gen_batch(data,t_vec,n_vec,idxs,FLAGS)
 
 def t_vec(data,FLAGS):
     # Input: [batch,num_steps,n_use]

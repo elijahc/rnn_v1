@@ -2,7 +2,7 @@ import tensorflow as tf
 
 class RecurrentActivityModel:
 
-    def __init__(self, x, y, x_mean, num_steps=50, state_size=25, next_n=1,learning_rate=1e-4, num_layers=3):
+    def __init__(self, x, y, x_mean, FLAGS):
         def squared(tensor):
             return tf.pow(tensor,2)
 
@@ -11,17 +11,19 @@ class RecurrentActivityModel:
 
 
         # Config Variables
+        STIM_CUE = FLAGS.STIM_CUE
         self.x = x # [1,num_steps,n_use=state_size]
         self.y = y
         self.x_mean = x_mean
-        self.num_steps = num_steps  # number of truncated backprop steps ('n')
-        self.state_size = state_size
-        self.learning_rate = learning_rate
-        self.num_layers = num_layers
+        self.num_steps = FLAGS.num_steps  # number of truncated backprop steps ('n')
+        self.state_size = FLAGS.state_size
+        self.learning_rate = FLAGS.lr
+        self.num_layers = FLAGS.num_layers
         self.y_mean = tf.reduce_mean(self.y,axis=1,keep_dims=True)
         global_step = tf.Variable(0, name='global_step', trainable=False)
-        batch_size = int(self.x.get_shape()[0])
-        self.n_use = int(self.x.get_shape()[2])
+        batch_size = FLAGS.batch_size
+        self.n_use = FLAGS.n_use
+        next_n = FLAGS.next_n
 
         learning_rate = tf.train.exponential_decay(
                 self.learning_rate,
@@ -49,7 +51,7 @@ class RecurrentActivityModel:
 
         # Define RNN architecture
         cell = tf.nn.rnn_cell.LSTMCell(self.state_size, state_is_tuple=True)
-        cell = tf.nn.rnn_cell.MultiRNNCell([cell] * num_layers,state_is_tuple=True)
+        #cell = tf.nn.rnn_cell.MultiRNNCell([cell] * self.num_layers,state_is_tuple=True)
         self.init_state = cell.zero_state(batch_size, tf.float32)
 
 
@@ -61,23 +63,27 @@ class RecurrentActivityModel:
             cell,
             rnn_inputs,
             initial_state=self.init_state,
-            dtype=tf.float32
         )
-
         # Grab last n values
-        last_n_out = rnn_outputs[:,-next_n:,:]
+        #last_n_out = rnn_outputs[:,-next_n:,:]
         # Flatten rnn_outputs down to shape = (batch_size*num_steps, state_size)
-        out_mod = tf.reshape(last_n_out, [-1, state_size])
+        out_mod = tf.reshape(rnn_outputs, [-1, self.state_size])
         # Flatten y; (num_steps,n_use) -> (num_steps*n_use)
-        _y      = tf.reshape(self.y, [-1,state_size])
-        _y_mean = tf.reshape(self.y_mean, [-1,state_size])
-        _x_mean = tf.reshape(self.x_mean, [-1,state_size])
+        _y      = tf.reshape(self.y, [-1,self.n_use])
+        _y_mean = tf.reshape(self.y_mean, [-1,self.state_size])
+        _x_mean = tf.reshape(self.x_mean, [-1,self.state_size])
 
         # (1500,25) x (25,2) = (1500,2)
         logits = tf.matmul(out_mod, W) + bias
-        logits_reshaped = tf.reshape(logits,[batch_size,next_n,self.n_use])
+
+
+        logits_reshaped = tf.reshape(logits,[batch_size,self.num_steps,self.n_use])
         #seqw =  tf.ones((batch_size, num_steps))
-        self._prediction = logits_reshaped
+        self._prediction = logits_reshaped[:,:next_n,:]
+        if FLAGS.STIM_CUE:
+            self._prediction = self._prediction[:,:,:-1]
+            self.y = self.y[:,:,:-1]
+            self.x_mean = self.x_mean[:,:,:-1]
         #self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps])
         #for i in range(self.n_use-1):
             #tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:])
@@ -85,13 +91,10 @@ class RecurrentActivityModel:
         with tf.name_scope('metrics'):
             # Error Metrics
             with tf.name_scope('error'):
-                self._error     = logits-_y
-
-                with tf.name_scope('2d'):
-                    self._error_2d   = self._prediction-self.y
+                self._error     = self._prediction - self.y
 
             with tf.name_scope('null_error'):
-                null_error = tf.zeros_like(logits)-_y
+                null_error = tf.zeros_like(self._prediction) - self.y
             with tf.name_scope('mean_error'):
                 mean_error = self.y - self.x_mean
             with tf.name_scope('squared_error'):
@@ -102,10 +105,7 @@ class RecurrentActivityModel:
             # 1D Metrics
             with tf.name_scope('total_loss'):
                 self._total_loss = sse(self._error)
-                self.FEV_2d    = tf.reduce_sum(squared(self._error_2d),[0])
-
-            with tf.name_scope('null_loss'):
-                null_loss = sse(null_error)
+                #self.FEV_2d    = tf.reduce_sum(squared(self._error_2d),[0])
 
             with tf.name_scope('variance'):
                 var = sse(mean_error)
@@ -119,7 +119,6 @@ class RecurrentActivityModel:
 
         # Log outputs to summary writer
         tf.summary.scalar('total_loss', self._total_loss)
-        tf.summary.scalar('null_loss', null_loss)
         tf.summary.scalar('var', var)
         tf.summary.scalar('FEV', self.FEV)
         #tf.summary.scalar('avg_perplexity', self._avg_perplexity)

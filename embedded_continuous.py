@@ -1,6 +1,5 @@
 import scipy.io as sio
 import os
-import configparser
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
@@ -11,7 +10,7 @@ import plotly.graph_objs as go
 import plotly.tools as tls
 from tqdm import tqdm
 
-from rnn_model import RecurrentActivityModel
+from embedded_rnn_model import RecurrentActivityModel
 from helpers.dataloaders import MatLoader as ld
 from helpers.utils import *
 
@@ -24,30 +23,25 @@ def main():
     # Boolean arguments
     parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
                         help='print all the things')
-    parser.add_argument('--no-validate', dest='VALIDATE', action='store_false',
+    parser.add_argument('--no_validate', dest='VALIDATE', action='store_false',
                         help='do not validate model after every epoch')
     parser.add_argument('--stream', dest='STREAMING', action='store_true',
                         help='stream results in realtime to plot.ly')
-    parser.add_argument('--with-stim-cue', dest='STIM_CUE', action='store_true',
-                        help='Include stim cue as 1 or 0 for each time step')
     parser.add_argument('--shuffle', dest='TIME_SHUFFLE', action='store_true',
                         help='time shuffle all the values of each neuron across the entire timeseries')
-    parser.add_argument('--dev', dest='DEV', action='store_true',
-                        help='Use the Dev set of config values for running')
     parser.set_defaults(VERBOSE=False,
                         STREAMING=False,
                         TIME_SHUFFLE=False,
-                        STIM_CUE=False,
                         VALIDATE=True
                         )
 
-    parser.add_argument('--state_size', type=int, default=30,
+    parser.add_argument('--rnn_size', type=int, default=30,
                         help='size of RNN hidden state')
     parser.add_argument('--n_use', type=int, default=30,
                         help='number of neurons to use')
-    parser.add_argument('--batch_size', type=int, default=10,
+    parser.add_argument('--batch', type=int, default=10,
                         help='minibatch size')
-    parser.add_argument('--num_steps', type=int, default=32,
+    parser.add_argument('--seq_len', type=int, default=32,
                         help='RNN sequence length')
     parser.add_argument('--epochs', type=int, default=50,
                         help='number of epochs')
@@ -57,18 +51,12 @@ def main():
                         help='percentage of the dataset to set aside for testing')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='Initial Learning Rate')
-    parser.add_argument('--num_layers', type=float, default=1,
+    parser.add_argument('--layers', type=float, default=1,
                         help='Num Layers in RNN')
     parser.add_argument('--bin_size', type=float, default=10,
                         help='Size of bin for resampling input data(1000Hz)')
-    parser.add_argument('infile', metavar='infile', type=str,
-                        help='Input data file path')
 
     FLAGS = parser.parse_args()
-    FLAGS.rnn_size = FLAGS.state_size
-    FLAGS.batch = FLAGS.batch_size
-    FLAGS.seq_len = FLAGS.num_steps
-    FLAGS.next_n = FLAGS.guess
     train(FLAGS)
 
 def train(FLAGS):
@@ -82,7 +70,7 @@ def train(FLAGS):
     tf.reset_default_graph()
 
     n_use = FLAGS.n_use
-    batch_size = FLAGS.batch_size
+    batch_size = FLAGS.batch
     num_steps = FLAGS.seq_len
     state_size = FLAGS.rnn_size
     num_epochs = FLAGS.epochs
@@ -90,24 +78,23 @@ def train(FLAGS):
     binning = FLAGS.bin_size
     test_frac = FLAGS.test
     learning_rate = FLAGS.lr
-    train_input = tf.placeholder(tf.float32, [batch_size,num_steps,n_use], name='input_placeholder')
-    train_target= tf.placeholder(tf.float32, [batch_size,next_n,n_use], name='labels_placeholder')
+    train_input = tf.placeholder(tf.int32, [batch_size,num_steps], name='input_placeholder')
+    train_target= tf.placeholder(tf.int32, [batch_size,n_use], name='labels_placeholder')
+    x_set_dim= tf.placeholder(tf.int32, shape=(), name='x_set_dim_placeholder')
+    y_set_dim= tf.placeholder(tf.int32, shape=(), name='y_set_dim_placeholder')
     #state_tuple=
 
     # load data
-    FILE = FLAGS.infile
-    #FILE = 'data/10_timeseries.mat'
+    #FILE = 'data/02_timeseries.mat'
+    FILE = 'data/10_timeseries.mat'
     #FILE = 'data/10_timeseries_trial_shuffled.mat'
     print('loading file: '+FILE)
     if VERBOSE:
         print('next_n=',next_n)
     mat_file = sio.loadmat(FILE)
     raw_x = mat_file['timeseries']
-    stim_x = mat_file['stim']
-    if FLAGS.STIM_CUE:
-        raw_x = np.concatenate([raw_x,stim_x],axis=0)
     tot_neurons = np.shape(raw_x)[0]
-    raw_x = raw_x[-n_use:].reshape(n_use,-1,binning).sum(axis=2)[:,:-binning]
+    raw_x = raw_x[:n_use].reshape(n_use,-1,binning).sum(axis=2)[:,:-binning]
     mean_raw_x = np.expand_dims(raw_x.mean(axis=1),axis=1)
     mean_raw_x = np.repeat(mean_raw_x, batch_size*next_n, axis=1).reshape([batch_size,next_n,n_use])
     #stim_x = stim_x.reshape(1,-1,10).max(axis=2)[:,:-10]
@@ -125,12 +112,14 @@ def train(FLAGS):
     test_idxs = idxs[-int(test_frac*epoch_size):]
     test_epoch_length = len(test_idxs)//batch_size
     raw_data = raw_x
+    train_vec_set = vec_set(raw_x,FLAGS,idxs=train_idxs)
+    test_vec_set = vec_set(raw_x,FLAGS,idxs=test_idxs)
 
 
     if STREAMING:
         # setup streaming heatmap object
-        weight_matrix = np.zeros((n_use,n_use))
-        #FEV_2D = np.zeros((n_use,next_n))
+        #weight_matrix = np.zeros((n_use,n_use))
+        FEV_2D = np.zeros((n_use,next_n))
         predictions = np.zeros((n_use,num_steps+next_n))
         input_data = np.zeros((n_use,num_steps+next_n))
 
@@ -150,7 +139,7 @@ def train(FLAGS):
                 stream=x_input_stream
                 )
         hm_trace = go.Heatmap(
-                z=weight_matrix,
+                z=FEV_2D,
                 colorscale='Viridis',
                 stream=hm_stream
                 )
@@ -171,9 +160,9 @@ def train(FLAGS):
                 data=data,
 
                 layout=dict(
-                title='weight_matrix',
+                title='2D FEV',
                 yaxis=dict(
-                    title='state'
+                    title='time'
                         ),
                 xaxis=dict(
                     title='neurons'
@@ -188,7 +177,7 @@ def train(FLAGS):
 
                     yaxis=dict(
                         title='time (%dms)' % (binning),
-                        range=[-num_steps,next_n]
+                        routputange=[-num_steps,next_n]
                         ),
 
                     xaxis=dict(
@@ -212,7 +201,7 @@ def train(FLAGS):
                         )
                     )
                 )
-        py.plot(fig, filename='last-weight-matrix-streaming', auto_open=False)
+        py.plot(fig, filename='2d-fev', auto_open=False)
         py.plot(pred_fig, filename='last_prediction', auto_open=False)
         py.plot(input_fig, filename='last-Y-streaming', auto_open=False)
         s = py.Stream(sid)
@@ -227,7 +216,9 @@ def train(FLAGS):
                     train_input,
                     train_target,
                     mean_raw_x,
-                    FLAGS=FLAGS)
+                    len(train_vec_set['t_map']),
+                    len(train_vec_set['n_map']),
+                    FLAGS)
             if VERBOSE:
                 print("it took", time.time() - t, "seconds to build the Train graph")
 
@@ -238,13 +229,15 @@ def train(FLAGS):
                     train_input,
                     train_target,
                     mean_raw_x,
-                    FLAGS=FLAGS)
+                    len(test_vec_set['t_map']),
+                    len(test_vec_set['n_map']),
+                    FLAGS)
             if VERBOSE:
                 print("it took", time.time() - t, "seconds to build the Test graph")
 
     with tf.Session() as sess:
         t = time.strftime("%Y%m%d.%H.%M.%S",time.localtime(time.time()))
-        TFR_PATH = 'log/continuous/data_10/n'+str(n_use)+'/'+t
+        TFR_PATH = 'log/data_10/n'+str(n_use)+'/'+t
         print('Logging to...',TFR_PATH)
         train_writer = tf.summary.FileWriter(TFR_PATH, sess.graph)
         sess.run(tf.global_variables_initializer())
@@ -261,18 +254,24 @@ def train(FLAGS):
                 'neurons':n_use
                 }
 
-        last_vals={'status':{'lr':FLAGS.lr}}
-        for idx,epoch in enumerate(gen_epochs(num_epochs,raw_data,train_idxs,FLAGS)):
+        last_vals={'status':{'lr':1e-2}}
+        for idx,epoch in enumerate(gen_epochs(num_epochs,raw_data,train_idxs,batch_size,num_steps,n_use,next_n,FLAGS)):
             b_id = np.random.randint(batch_size)
             status = "EPOCH: %d LR: %.5f" % (idx,last_vals['status']['lr'])
-            for step,(X,Y,XY) in tqdm(enumerate(epoch),desc=status,total=train_epoch_length):
+            for step,(X,Y,XY,lookups) in tqdm(enumerate(epoch),desc=status,total=train_epoch_length):
+                FLAGS.x_set_dim = len(lookups['t_map'])
+                FLAGS.y_set_dim = len(lookups['n_map'])
+                import pdb; pdb.set_trace()
                 feed_dict = {train_input:X,
                              train_target:Y,
+                             x_set_dim:FLAGS.x_set_dim,
+                             y_set_dim:FLAGS.y_set_dim
                              }
                 fetchers = {
                     'summary':      model.merge_summaries,
                     'status':       model.status,
-                    'weights':      model._weight_matrix,
+                    'fev_2d':       model.FEV_2d,
+                    #'weights':      model._weight_matrix,
                     'prediction':   model.prediction,
                     'eval':         model.optimize
                 }
@@ -280,6 +279,7 @@ def train(FLAGS):
                 last_vals = vals
                 global_step = model.step(session=sess)
                 train_writer.add_summary(vals['summary'],global_step)
+
                 if step % 5000 == 0:
                     if STREAMING:
                         #r_x = np.reshape(X[b_id],[n_use,-1])
@@ -290,7 +290,7 @@ def train(FLAGS):
 
                         updates = [
                                 dict(
-                                    z=vals['weights'],
+                                    z=vals['fev_2d'],
                                     type='heatmap'),
                                 dict(
                                     z=prediction_ex,
@@ -309,8 +309,8 @@ def train(FLAGS):
             if VALIDATE:
                 # testing
                 test_status = "EPOCH: %d testing..." % idx
-                for epoch in gen_epochs(1,raw_data, test_idxs,FLAGS):
-                    for test_step, (X,Y,XY) in tqdm(enumerate(epoch),desc=test_status,total=test_epoch_length):
+                for epoch in gen_epochs(1,raw_data, test_idxs,batch_size,num_steps,n_use,next_n,FLAGS):
+                    for test_step, (X,Y,XY,lookups) in tqdm(enumerate(epoch),desc=test_status,total=test_epoch_length):
                         test_feed_dict = {train_input:X,
                                          train_target:Y}
                         test_fetchers = {

@@ -97,8 +97,8 @@ class RecurrentActivityModel:
         # (1500,25) x (25,2) = (1500,2)
         #seqw =  tf.ones((batch_size, num_steps))
 
-        ###### Stopping point
-        self._prediction = tf.argmax(response_vec,axis=2)
+        ##### Stopping point
+        self._prediction = tf.cast(tf.argmax(response_vec,axis=2),tf.int32)
         #self._prediction = tf.reshape(self._flat_prediction, [-1, self.num_steps])
         #for i in range(self.n_use-1):
             #tf.summary.histogram('prediction_n%d'%(i),self._prediction[i,:])
@@ -107,15 +107,15 @@ class RecurrentActivityModel:
         with tf.name_scope('metrics'):
             # Error Metrics
             with tf.name_scope('error'):
-                self._error     = logits-_y
+                self._error     = tf.nn.softmax(response_vec)-y_OH
 
                 with tf.name_scope('2d'):
                     self._error_2d   = self._prediction-self.y
 
             with tf.name_scope('null_error'):
-                null_error = tf.zeros_like(logits)-_y
-            with tf.name_scope('mean_error'):
-                mean_error = self.y - self.x_mean
+                null_error = tf.zeros_like(response_vec)-y_OH
+            #with tf.name_scope('mean_error'):
+            #    mean_error = self.y - self.x_mean
             with tf.name_scope('squared_error'):
                 self.se         = squared(self._error)
                 with tf.name_scope('2d'):
@@ -124,17 +124,17 @@ class RecurrentActivityModel:
             # 1D Metrics
             with tf.name_scope('total_loss'):
                 self._total_loss = sse(self._error)
-                self.FEV_2d    = tf.reduce_sum(squared(self._error_2d),[0])
+            #    self.FEV_2d    = tf.reduce_sum(squared(self._error_2d),[0])
 
             with tf.name_scope('null_loss'):
                 null_loss = sse(null_error)
 
-            with tf.name_scope('variance'):
-                var = sse(mean_error)
-                self._var_2d = tf.reduce_sum(squared(mean_error),[0])
+            #with tf.name_scope('variance'):
+            #    var = sse(mean_error)
+            #    self._var_2d = tf.reduce_sum(squared(mean_error),[0])
 
-            with tf.name_scope('FEV'):
-                self.FEV = 1-(self._total_loss/var)
+            #with tf.name_scope('FEV'):
+            #    self.FEV = 1-(self._total_loss/var)
                 #self.FEV_2d = 1-(self._sse_2d/self._var_2d)
 
         self._optimize = tf.train.AdamOptimizer(learning_rate).minimize(self._total_loss, global_step=global_step)
@@ -142,8 +142,8 @@ class RecurrentActivityModel:
         # Log outputs to summary writer
         tf.summary.scalar('total_loss', self._total_loss)
         tf.summary.scalar('null_loss', null_loss)
-        tf.summary.scalar('var', var)
-        tf.summary.scalar('FEV', self.FEV)
+        #tf.summary.scalar('var', var)
+        #tf.summary.scalar('FEV', self.FEV)
         #tf.summary.scalar('avg_perplexity', self._avg_perplexity)
         self._merge_summaries = tf.summary.merge_all()
         self._global_step = global_step

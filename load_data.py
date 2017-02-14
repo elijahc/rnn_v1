@@ -5,8 +5,10 @@ from tqdm import tqdm
 # Load files
 print('loading...stim_sequence')
 stim_sequence = sio.loadmat('data/stimulus_sequence.mat')['stimulus_sequence']
-print('loading...matfile')
-session_1 = sio.loadmat('data/02.mat')
+data_set = '02'
+FILE = 'data/'+data_set+'.mat'
+print('loading...', FILE)
+session_1 = sio.loadmat(FILE)
 
 #%%
 # Filter out poor quality neurons
@@ -57,9 +59,8 @@ def mutate(resp):
         #print(y.shape)
         #print(y)
     return (np.concatenate(np.array(sequences)),np.concatenate(np.array(labels), axis=1))
-seq, lab = mutate(resp)
+stim, spike_train = mutate(resp)
 
-file = 'data/02_timeseries.mat'
-print('writing ', file, '...')
-sio.savemat(file, {'timeseries':lab, 'stim':seq})
-sio.whosmat(file)
+outfile = 'data/'+data_set+'_timeseries.mat'
+print('writing ', outfile, '...')
+sio.savemat(outfile, {'timeseries':spike_train, 'stim':stim})
