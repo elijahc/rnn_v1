@@ -1,4 +1,5 @@
 import tensorflow as tf
+from bnlstm_cell import BNLSTMCell
 
 class RecurrentActivityModel:
 
@@ -11,7 +12,6 @@ class RecurrentActivityModel:
 
         def sse(error):
             return tf.reduce_sum(squared(error))
-
 
         # Config Variables
         STIM_CUE = FLAGS.STIM_CUE
@@ -40,7 +40,8 @@ class RecurrentActivityModel:
             W = tf.get_variable(
                     'W',
                     [self.n_use, self.n_use],
-                    initializer=tf.constant_initializer(1.0)
+                    initializer=tf.truncated_normal_initializer()
+                    #initializer=tf.constant_initializer(1.0)
                     #initializer=tf.contrib.layers.xavier_initializer()
                     )
             bias = tf.get_variable(
@@ -54,12 +55,18 @@ class RecurrentActivityModel:
 
         # Define RNN architecture
         with tf.variable_scope('back_rnn'):
-            cell = tf.nn.rnn_cell.LSTMCell(
-                    self.state_size,
-                    forget_bias=10,
-                    num_proj=self.n_use,
-                    use_peepholes=True,
-                    state_is_tuple=True)
+            if FLAGS.cell == 'lstm':
+                cell = tf.nn.rnn_cell.LSTMCell(
+                        self.state_size,
+                        forget_bias=5,
+                        num_proj=self.n_use,
+                        use_peepholes=True,
+                        state_is_tuple=True)
+            elif FLAGS.cell == 'bnlstm':
+                cell = BNLSTMCell(
+                        self.state_size,
+                        training=True)
+
             cell = tf.nn.rnn_cell.MultiRNNCell([cell] * self.num_layers,state_is_tuple=True)
             self.init_state = cell.zero_state(batch_size, tf.float32)
 
@@ -86,7 +93,6 @@ class RecurrentActivityModel:
         # (1500,25) x (25,2) = (1500,2)
         logits = tf.matmul(out_mod, W) + bias
 
-
         logits_reshaped = tf.reshape(logits,[-1,self.num_steps,self.n_use])
         #seqw =  tf.ones((batch_size, num_steps))
         #self._prediction = tf.nn.softmax(logits_reshaped[:,:next_n])
@@ -111,7 +117,7 @@ class RecurrentActivityModel:
             with tf.name_scope('null_error'):
                 null_error = tf.zeros_like(self._prediction) - self.y
             with tf.name_scope('mean_error'):
-                self.mean_error = self.y - self.x_mean
+                self.mean_error = self.x_mean - self.y
             with tf.name_scope('squared_error'):
                 self.se         = squared(self._error)
                 with tf.name_scope('2d'):

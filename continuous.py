@@ -19,68 +19,25 @@ from tqdm import tqdm
 from rnn_model import RecurrentActivityModel
 from helpers.dataloaders import MatLoader as ld
 from helpers.utils import *
+from sklearn.preprocessing import MinMaxScaler
 
 import argparse
 import time
 
 def main():
-    parser = argparse.ArgumentParser(description='RNN for modeling neuron populations')
-
-    # Boolean arguments
-    parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
-                        help='print all the things')
-    parser.add_argument('--no-validate', dest='VALIDATE', action='store_false',
-                        help='do not validate model after every epoch')
-    parser.add_argument('--stream', dest='STREAMING', action='store_true',
-                        help='stream results in realtime to plot.ly')
-    parser.add_argument('--with-stim-cue', dest='STIM_CUE', action='store_true',
-                        help='Include stim cue as 1 or 0 for each time step')
-    parser.add_argument('--shuffle', dest='TIME_SHUFFLE', action='store_true',
-                        help='time shuffle all the values of each neuron across the entire timeseries')
-    parser.add_argument('--dev', dest='DEV', action='store_true',
-                        help='Use the Dev set of config values for running')
-    parser.set_defaults(VERBOSE=False,
-                        STREAMING=False,
-                        TIME_SHUFFLE=False,
-                        STIM_CUE=False,
-                        VALIDATE=True
-                        )
-
-    parser.add_argument('--tag', type=str, default='default',
-                        help='tagline for the set of data analysis')
-    parser.add_argument('--data_set', type=int, default=0,
-                        help='numeric value (1-10) indicated which dataset')
-    parser.add_argument('--state_size', type=int, default=30,
-                        help='size of RNN hidden state')
-    parser.add_argument('--n_use', type=int, default=30,
-                        help='number of neurons to use')
-    parser.add_argument('--batch_size', type=int, default=10,
-                        help='minibatch size')
-    parser.add_argument('--num_steps', type=int, default=32,
-                        help='RNN sequence length')
-    parser.add_argument('--epochs', type=int, default=50,
-                        help='number of epochs')
-    parser.add_argument('--guess', type=int, default=1,
-                        help='number of sequences forward to guess')
-    parser.add_argument('--test', type=float, default=0.2,
-                        help='percentage of the dataset to set aside for testing')
-    parser.add_argument('--lr', type=float, default=1e-3,
-                        help='Initial Learning Rate')
-    parser.add_argument('--num_layers', type=float, default=1,
-                        help='Num Layers in RNN')
-    parser.add_argument('--bin_size', type=float, default=10,
-                        help='Size of bin for resampling input data(1000Hz)')
-    parser.add_argument('infile', metavar='infile', type=str,
-                        help='Input data file path')
-
-    FLAGS = parser.parse_args()
-
-    max_s = 2
-    batch_span = slice(1,max_s,1)
-    epochs_span = slice(1,max_s,1)
-    #state_span  = (1,10)
-    #layers_span = (1,10)
-    a,f,g,j = brute(optimize,(batch_span,epochs_span),args=tuple([FLAGS]),Ns=max_s,full_output=True)
+    FLAGS = init_configs()
+    if FLAGS.OPTIMIZE:
+        max_s = 15
+        batch_span = slice(2,max_s,1)
+        epochs_span = slice(1,10,2)
+        #state_span  = (1,10)
+        #layers_span = (1,10)
+        a,f,g,j = brute(optimize,(batch_span,epochs_span),args=tuple([FLAGS]),full_output=True)
+        full_out = {'x0':a,'fval':f,'grid':g,'Jout':j}
+        pprint.pprint(full_out)
+        full_out
+    else:
+        train(FLAGS)
 
 
 def optimize(x,FLAGS):
@@ -89,10 +46,6 @@ def optimize(x,FLAGS):
     #FLAGS.state_size = x[2]
     #FLAGS.layers_span = x[3]
 
-    FLAGS.rnn_size = FLAGS.state_size
-    FLAGS.batch = FLAGS.batch_size
-    FLAGS.seq_len = FLAGS.num_steps
-    FLAGS.next_n = FLAGS.guess
     print('starting run with:')
     pprint.pprint(vars(FLAGS))
 
@@ -102,6 +55,10 @@ def optimize(x,FLAGS):
 def train(FLAGS):
 
     # Set params/placeholders
+    FLAGS.rnn_size = FLAGS.state_size
+    FLAGS.batch = FLAGS.batch_size
+    FLAGS.seq_len = FLAGS.num_steps
+    FLAGS.next_n = FLAGS.guess
     TIME_SHUFFLE=FLAGS.TIME_SHUFFLE
     VALIDATE=FLAGS.VALIDATE
     STREAMING=FLAGS.STREAMING
@@ -134,13 +91,18 @@ def train(FLAGS):
     if VERBOSE:
         print('next_n=',next_n)
     mat_file = sio.loadmat(FILE)
+
+    scaler = MinMaxScaler(feature_range=(0,1))
+
     raw_x = mat_file['timeseries']
     stim_x = mat_file['stim']
+
     tot_neurons = np.shape(raw_x)[0]
     stim_x = stim_x.reshape(1,-1,binning).mean(axis=2)[:,:-binning]
     raw_x = raw_x[-an_use:].reshape(an_use,-1,binning).sum(axis=2)[:,:-binning]
     if FLAGS.STIM_CUE:
         raw_x = np.concatenate([raw_x,stim_x],axis=0)
+    raw_x = scaler.fit_transform(raw_x)
     mean_raw_x = np.expand_dims(raw_x.mean(axis=1),axis=1)
     mean_raw_x = np.repeat(mean_raw_x, batch_size*next_n, axis=1).reshape([batch_size,next_n,n_use])
     #stim_x = stim_x.reshape(1,-1,10).max(axis=2)[:,:-10]
@@ -342,7 +304,8 @@ def train(FLAGS):
                     json.dump(vars(FLAGS),fp,sort_keys=True, indent=4)
 
             output_fp = TFR_PATH+'/bdump.p'
-            print('saving '+output_fp+'...')
+            if VERBOSE:
+                print('saving '+output_fp+'...')
             final_data.extend([ epoch_output ])
             with open(output_fp,'wb') as fp:
                 pickle.dump(np.array(final_data),fp)
@@ -362,9 +325,68 @@ def train(FLAGS):
                                 'summary': m_test.merge_summaries
                                 }
                         test_vals = m_test.do(sess,test_fetchers, test_feed_dict)
-                        test_fev.extend([vals['total_loss']])
+                        test_fev.extend([test_vals['total_loss']])
                         train_writer.add_summary(test_vals['summary'],global_step)
     return test_fev
+
+def init_configs():
+
+    parser = argparse.ArgumentParser(description='RNN for modeling neuron populations')
+
+    # Boolean arguments
+    parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
+                        help='print all the things')
+    parser.add_argument('--no-validate', dest='VALIDATE', action='store_false',
+                        help='do not validate model after every epoch')
+    parser.add_argument('--stream', dest='STREAMING', action='store_true',
+                        help='stream results in realtime to plot.ly')
+    parser.add_argument('--with-stim-cue', dest='STIM_CUE', action='store_true',
+                        help='Include stim cue as 1 or 0 for each time step')
+    parser.add_argument('--shuffle', dest='TIME_SHUFFLE', action='store_true',
+                        help='time shuffle all the values of each neuron across the entire timeseries')
+    parser.add_argument('--optimize', dest='OPTIMIZE', action='store_true',
+                        help='Do a gridsearch of hardcoded params')
+    parser.add_argument('--dev', dest='DEV', action='store_true',
+                        help='Use the Dev set of config values for running')
+    parser.set_defaults(VERBOSE=False,
+                        STREAMING=False,
+                        TIME_SHUFFLE=False,
+                        STIM_CUE=False,
+                        VALIDATE=True,
+                        OPTIMIZE=False
+                        )
+
+    parser.add_argument('--tag', type=str, default='default',
+                        help='tagline for the set of data analysis')
+    parser.add_argument('--data_set', type=int, default=0,
+                        help='numeric value (1-10) indicated which dataset')
+    parser.add_argument('--state_size', type=int, default=30,
+                        help='size of RNN hidden state')
+    parser.add_argument('--n_use', type=int, default=30,
+                        help='number of neurons to use')
+    parser.add_argument('--batch_size', type=int, default=10,
+                        help='minibatch size')
+    parser.add_argument('--num_steps', type=int, default=32,
+                        help='RNN sequence length')
+    parser.add_argument('--epochs', type=int, default=10,
+                        help='number of epochs')
+    parser.add_argument('--cell', type=str, default='lstm', choices=['lstm','gru','bnlstm'],
+                        help='Cell type for rnn')
+    parser.add_argument('--guess', type=int, default=1,
+                        help='number of sequences forward to guess')
+    parser.add_argument('--test', type=float, default=0.2,
+                        help='percentage of the dataset to set aside for testing')
+    parser.add_argument('--lr', type=float, default=1e-4,
+                        help='Initial Learning Rate')
+    parser.add_argument('--num_layers', type=int, default=1,
+                        help='Num Layers in RNN')
+    parser.add_argument('--bin_size', type=int, default=10,
+                        help='Size of bin for resampling input data(1000Hz)')
+    parser.add_argument('infile', metavar='infile', type=str,
+                        help='Input data file path')
+
+    FLAGS = parser.parse_args()
+    return FLAGS
 
 sys.excepthook = info
 
