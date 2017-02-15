@@ -1,4 +1,10 @@
 import numpy as np
+import sys,ipdb,traceback
+
+def info(type,value,tb):
+    traceback.print_exception(type,value,tb)
+    print
+    ipdb.pm()
 
 def gen_batch(raw_data, idxs,FLAGS):
     #raw_x = np.squeeze(raw_x)
@@ -37,7 +43,9 @@ def gen_epochs(n,raw_data,idxs,FLAGS):
     for i,idx in enumerate(idxs):
         # Make a data matrix thats [num_idxs, num_steps+next_n, num_neurons]
         if ((idx+1)*num_steps) + next_n < np.size(raw_x,axis=1):
-            data[i,:,:] = np.reshape(raw_x[:, idx*num_steps:((idx+1)*num_steps)+next_n],[1,num_steps+next_n,n_use])
+            t_slice = np.swapaxes(raw_x[:, idx*num_steps:((idx+1)*num_steps)+next_n],0,1)
+            data[i,:,:] = t_slice
+
     if VERBOSE:
         print('data matrix shape',np.shape(data))
 
