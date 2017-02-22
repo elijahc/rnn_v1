@@ -70,8 +70,9 @@ def mutate(resp,stim_len,blank_len,stim_sequence):
         #print(x)
         #print(y.shape)
         #print(y)
+    stim,spikes =  (np.concatenate(np.array(sequences)),np.concatenate(np.array(labels), axis=1).swapaxes(0,1))
     import pdb; pdb.set_trace()
-    return (np.concatenate(np.array(sequences)),np.concatenate(np.array(labels), axis=1))
+    return (stim,spikes)
 
 if __name__ == '__main__':
     main()
